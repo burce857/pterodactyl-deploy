@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # https://github.com/burce857/pterodactyl-deploy
 # ============================================================
 
-VERSION="7"
+VERSION="8"
 REPO_RAW="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main"
 CACHE_DIR="/var/tmp/pterodactyl-deploy"
 LOG="/var/log/pterodactyl-manager.log"
@@ -48,32 +48,61 @@ download_script() {
     local dest="$CACHE_DIR/$name"
 
     bootstrap_tools
+    mkdir -p "$CACHE_DIR"
 
-    echo "⬇️ 下載最新版 $name ..."
+    # 重要：所有提示都送到 stderr，stdout 只回傳檔案路徑。
+    # 這樣 path="$(download_script ...)" 不會把「⬇️ 下載...」也吃進變數。
+    echo "⬇️ 下載最新版 $name ..." >&2
+
+    rm -f "$dest"
+
     if ! curl -fL --retry 3 --retry-delay 2 \
         "${REPO_RAW}/${name}?t=$(date +%s)" \
         -o "$dest"; then
-        echo "❌ 無法下載 $name"
+        echo "❌ 無法下載 $name" >&2
+        rm -f "$dest"
+        return 1
+    fi
+
+    if [[ ! -s "$dest" ]]; then
+        echo "❌ $name 下載後是空檔案" >&2
+        rm -f "$dest"
         return 1
     fi
 
     chmod +x "$dest"
 
     if ! bash -n "$dest"; then
-        echo "❌ $name 語法檢查失敗，拒絕執行"
+        echo "❌ $name 語法檢查失敗，拒絕執行" >&2
+        rm -f "$dest"
         return 1
     fi
 
-    echo "$dest"
+    printf '%s\n' "$dest"
 }
 
 run_component() {
     local name="$1"
     local path
 
-    path="$(download_script "$name")" || return 1
+    mkdir -p "$CACHE_DIR"
+
+    if ! path="$(download_script "$name")"; then
+        echo "❌ 下載 $name 失敗"
+        return 1
+    fi
+
+    # 去掉任何意外的 CR/LF，只保留最後一行的實際路徑。
+    path="$(printf '%s\n' "$path" | tail -n1 | tr -d '\r')"
+
+    if [[ ! -f "$path" ]]; then
+        echo "❌ 找不到下載後的檔案：$path"
+        return 1
+    fi
+
     echo
     echo "🚀 執行 $name"
+    echo "📁 $path"
     echo "────────────────────────────────────────"
     bash "$path"
 }
@@ -206,6 +235,7 @@ while true; do
         10)
             rm -rf "$CACHE_DIR"
             mkdir -p "$CACHE_DIR"
+            chmod 755 "$CACHE_DIR"
             ok "快取已清除"
             sleep 1
             ;;

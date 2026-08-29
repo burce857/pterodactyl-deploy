@@ -1,15 +1,31 @@
-# Pterodactyl Deploy Kit v7
+# Pterodactyl Deploy Kit v8
 
-新增 `network-config.sh`：
+v8 修正主選單下載器的重要問題：
 
-- 設定/重建 25565-25600 IPv6 socat proxy
-- 設定 Node Public IPv6
-- Panel 管理 node1/node2/... -> Public IPv6
-- Panel 顯示把 `127.0.0.1:PORT` 轉成 `[PublicIPv6]:PORT`
-- 只改顯示，不會把 Docker Allocation 真正改成 Public IPv6
-- Docker backend 仍自動偵測 `pterodactyl0`，通常是 `172.18.0.1`
+之前 `download_script()` 的「⬇️ 下載最新版...」提示文字和實際路徑都輸出到 stdout，
+而 `run_component()` 使用：
 
-主入口：
+```bash
+path="$(download_script "$name")"
+```
+
+因此 `path` 可能變成多行文字，最後執行時就會出現：
+
+```text
+/var/tmp/pterodactyl-deploy/panel-deploy.sh: No such file or directory
+```
+
+v8 已改成：
+
+- 所有下載提示輸出到 stderr
+- stdout 只回傳真正檔案路徑
+- 執行前再次確認檔案存在
+- 自動建立 `/var/tmp/pterodactyl-deploy`
+- 下載後檢查檔案非空
+- 下載後先跑 `bash -n`
+- 清除快取後自動重建目錄
+
+## 使用
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh -o ptero-tool.sh
