@@ -1,4 +1,4 @@
-# Pterodactyl Deploy Kit v4
+# Pterodactyl Deploy Kit v5
 
 包含三支腳本：
 
@@ -43,3 +43,14 @@ sudo ./maintenance.sh
 - IPv6 proxy 自動抓 eth0 global IPv6 與 pterodactyl0 IPv4
 
 > 不要將 `.env`、DB 密碼、API Token、Wings `config.yml`、SSH private key 上傳到公開 GitHub。
+
+
+## v5 追加修正
+
+- 修正 `npm install -g yarn` 顯示成功但 `yarn: command not found`
+- 固定 Yarn Classic `1.22.22`
+- 若 npm 沒建立 symlink，會自動建立 `/usr/local/bin/yarn` 與 `yarnpkg`
+- Blueprint 安裝前會真的執行 `yarn --version` 驗證，不只看 npm 回傳值
+- `yarn install` 失敗會自動清理 `node_modules` / cache 並重試
+- 維護工具新增「修復 Node.js / Yarn」
+- Panel 最後會自動檢查 php/composer/node/npm/yarn/caddy/blueprint 與主要 systemd 服務

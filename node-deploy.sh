@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v4
+# Pterodactyl Wings Node 一鍵部署 v5
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -21,6 +21,15 @@ export DEBIAN_FRONTEND=noninteractive
 
 info(){ echo -e "\n🔹 $*"; }
 fail(){ echo "❌ $*" >&2; exit 1; }
+
+apt_retry() {
+    local tries=0
+    until apt-get "$@"; do
+        tries=$((tries+1))
+        if (( tries >= 3 )); then return 1; fi
+        sleep 3
+    done
+}
 trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 
 . /etc/os-release
@@ -28,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v4"
+echo " Pterodactyl Wings Node 一鍵部署 v5"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -50,8 +59,8 @@ else
 fi
 
 info "安裝 Node 常用依賴"
-apt-get update -y
-apt-get install -y \
+apt_retry update -y
+apt_retry install -y \
     ca-certificates curl wget gnupg gpg lsb-release apt-transport-https \
     software-properties-common unzip zip tar git rsync jq nano \
     socat tcpdump netcat-openbsd iproute2 iputils-ping dnsutils openssl

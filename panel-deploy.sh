@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v4
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v5
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v4"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v5"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -89,6 +89,75 @@ apt_retry() {
     done
 }
 
+install_yarn_classic() {
+    info "安裝 / 修復 Yarn Classic 1.22.22"
+
+    # 清掉 corepack shim 或壞掉的 global yarn，避免 npm 顯示成功但 PATH 找不到。
+    if command -v corepack >/dev/null 2>&1; then
+        corepack disable >/dev/null 2>&1 || true
+    fi
+
+    npm uninstall -g yarn >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+    npm install -g yarn@1.22.22 --force
+    hash -r || true
+
+    # npm 某些版本/環境不會自動建立可執行連結，直接補上。
+    if ! command -v yarn >/dev/null 2>&1; then
+        YARN_JS="$(npm root -g)/yarn/bin/yarn.js"
+        if [[ -f "$YARN_JS" ]]; then
+            chmod +x "$YARN_JS"
+            ln -sf "$YARN_JS" /usr/local/bin/yarn
+            ln -sf "$YARN_JS" /usr/local/bin/yarnpkg
+            hash -r || true
+        fi
+    fi
+
+    command -v yarn >/dev/null 2>&1 || fail "Yarn 安裝後仍無法執行"
+    yarn --version >/dev/null 2>&1 || fail "Yarn 指令存在但無法正常執行"
+
+    ok "Yarn $(yarn --version)"
+}
+
+ensure_node_yarn() {
+    NODE_MAJOR="$(node -p 'parseInt(process.versions.node.split(\".\")[0])' 2>/dev/null || echo 0)"
+    if [[ "$NODE_MAJOR" -lt 22 ]]; then
+        info "安裝 Node.js 22"
+        install -d -m 0755 /etc/apt/keyrings
+        rm -f /etc/apt/keyrings/nodesource.gpg
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+            | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+            > /etc/apt/sources.list.d/nodesource.list
+        apt_retry update -y
+        apt_retry install -y nodejs
+    fi
+
+    # 不只檢查 command -v，也實際執行版本檢查。
+    if ! command -v yarn >/dev/null 2>&1 || ! yarn --version >/dev/null 2>&1; then
+        install_yarn_classic
+    fi
+}
+
+safe_yarn_install() {
+    local dir="${1:-$PTERO_DIR}"
+    cd "$dir"
+
+    ensure_node_yarn
+
+    if yarn install --network-timeout 600000; then
+        return 0
+    fi
+
+    echo "⚠️ 第一次 yarn install 失敗，自動清理 node_modules/cache 後重試..."
+    rm -rf node_modules
+    rm -f package-lock.json
+    yarn cache clean || true
+
+    yarn install --network-timeout 600000 --ignore-engines
+}
+
 # ------------------------------------------------------------
 # Base packages
 # ------------------------------------------------------------
@@ -124,22 +193,7 @@ systemctl enable --now mariadb redis-server php8.3-fpm cron
 # ------------------------------------------------------------
 # Node.js 22 + Yarn
 # ------------------------------------------------------------
-NODE_MAJOR="$(node -p 'parseInt(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
-if [[ "$NODE_MAJOR" -lt 22 ]]; then
-    info "安裝 Node.js 22"
-    install -d -m 0755 /etc/apt/keyrings
-    rm -f /etc/apt/keyrings/nodesource.gpg
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
-        > /etc/apt/sources.list.d/nodesource.list
-    apt_retry update -y
-    apt_retry install -y nodejs
-fi
-
-if ! command -v yarn >/dev/null 2>&1; then
-    npm install -g --allow-scripts=yarn yarn || npm install -g yarn
-fi
+ensure_node_yarn
 
 # ------------------------------------------------------------
 # Caddy - robust official key path
@@ -329,7 +383,7 @@ OWNERSHIP="www-data:www-data";
 USERSHELL="/bin/bash";
 EOF
 
-yarn install
+safe_yarn_install "$PTERO_DIR"
 chmod +x blueprint.sh
 bash blueprint.sh
 
@@ -443,7 +497,11 @@ esac
 # ------------------------------------------------------------
 info "補齊前端依賴並重建"
 cd "$PTERO_DIR"
-yarn install || true
+if ! safe_yarn_install "$PTERO_DIR"; then
+    echo "⚠️ 前端依賴安裝仍失敗，但不讓整個部署流程中止；請查看 $LOG"
+else
+    ok "前端依賴完成"
+fi
 
 if ! NODE_OPTIONS=--openssl-legacy-provider blueprint -build; then
     echo "⚠️ blueprint -build 失敗，嘗試 yarn build:production"
@@ -455,6 +513,23 @@ php artisan queue:restart || true
 
 chown -R www-data:www-data "$PTERO_DIR/storage" "$PTERO_DIR/bootstrap/cache"
 systemctl restart php8.3-fpm pteroq caddy
+
+echo
+echo "🔎 最終自我檢查"
+for cmd in php composer node npm yarn caddy blueprint; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+        echo "✅ $cmd: $(command -v "$cmd")"
+    else
+        echo "⚠️ $cmd: 找不到"
+    fi
+done
+
+systemctl is-active --quiet mariadb && echo "✅ mariadb active" || echo "⚠️ mariadb not active"
+systemctl is-active --quiet redis-server && echo "✅ redis active" || echo "⚠️ redis not active"
+systemctl is-active --quiet php8.3-fpm && echo "✅ php-fpm active" || echo "⚠️ php-fpm not active"
+systemctl is-active --quiet cron && echo "✅ cron active" || echo "⚠️ cron not active"
+systemctl is-active --quiet pteroq && echo "✅ pteroq active" || echo "⚠️ pteroq not active"
+systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ caddy not active"
 
 echo
 echo "============================================================"

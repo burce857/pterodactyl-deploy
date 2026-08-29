@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl 維護 / 修復 / 更新工具 v4
+# Pterodactyl 維護 / 修復 / 更新工具 v5
 # ============================================================
 
 PTERO_DIR="/var/www/pterodactyl"
@@ -24,6 +24,67 @@ export COMPOSER_ALLOW_SUPERUSER=1
 has_panel(){ [[ -f "$PTERO_DIR/artisan" ]]; }
 has_wings(){ [[ -x /usr/local/bin/wings ]]; }
 pause(){ read -rp "按 Enter 繼續..." _; }
+
+install_yarn_classic() {
+    echo "🔧 安裝 / 修復 Yarn Classic 1.22.22..."
+    command -v npm >/dev/null 2>&1 || { echo "❌ npm 不存在"; return 1; }
+
+    if command -v corepack >/dev/null 2>&1; then
+        corepack disable >/dev/null 2>&1 || true
+    fi
+
+    npm uninstall -g yarn >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg
+    npm install -g yarn@1.22.22 --force
+    hash -r || true
+
+    if ! command -v yarn >/dev/null 2>&1; then
+        local yarn_js
+        yarn_js="$(npm root -g)/yarn/bin/yarn.js"
+        if [[ -f "$yarn_js" ]]; then
+            chmod +x "$yarn_js"
+            ln -sf "$yarn_js" /usr/local/bin/yarn
+            ln -sf "$yarn_js" /usr/local/bin/yarnpkg
+            hash -r || true
+        fi
+    fi
+
+    command -v yarn >/dev/null 2>&1 && yarn --version >/dev/null 2>&1
+}
+
+ensure_node_yarn() {
+    local node_major
+    node_major="$(node -p 'parseInt(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
+
+    if [[ "$node_major" -lt 22 ]]; then
+        install -d -m 0755 /etc/apt/keyrings
+        rm -f /etc/apt/keyrings/nodesource.gpg
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+            | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+            > /etc/apt/sources.list.d/nodesource.list
+        apt-get update
+        apt-get install -y nodejs
+    fi
+
+    if ! command -v yarn >/dev/null 2>&1 || ! yarn --version >/dev/null 2>&1; then
+        install_yarn_classic
+    fi
+}
+
+safe_yarn_install() {
+    ensure_node_yarn || return 1
+    cd "$PTERO_DIR"
+
+    if yarn install --network-timeout 600000; then
+        return 0
+    fi
+
+    rm -rf node_modules
+    rm -f package-lock.json
+    yarn cache clean || true
+    yarn install --network-timeout 600000 --ignore-engines
+}
 
 repair_caddy_repo() {
     echo "🔧 修復 Caddy repository/GPG key..."
@@ -125,19 +186,7 @@ reinstall_blueprint() {
     apt-get update || true
     apt-get install -y ca-certificates curl git gnupg unzip wget zip build-essential
 
-    NODE_MAJOR="$(node -p 'parseInt(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
-    if [[ "$NODE_MAJOR" -lt 22 ]]; then
-        install -d -m 0755 /etc/apt/keyrings
-        rm -f /etc/apt/keyrings/nodesource.gpg
-        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-            | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
-            > /etc/apt/sources.list.d/nodesource.list
-        apt-get update
-        apt-get install -y nodejs
-    fi
-
-    command -v yarn >/dev/null 2>&1 || npm install -g --allow-scripts=yarn yarn || npm install -g yarn
+    ensure_node_yarn
 
     curl -fL -o release.zip https://github.com/BlueprintFramework/framework/releases/latest/download/release.zip
     unzip -o release.zip
@@ -149,7 +198,7 @@ OWNERSHIP="www-data:www-data";
 USERSHELL="/bin/bash";
 EOF
 
-    yarn install
+    safe_yarn_install
     chmod +x blueprint.sh
     bash blueprint.sh
     echo "✅ Blueprint 重裝完成"
@@ -158,8 +207,7 @@ EOF
 rebuild_frontend() {
     has_panel || return
     cd "$PTERO_DIR"
-    command -v yarn >/dev/null 2>&1 || npm install -g yarn
-    yarn install
+    safe_yarn_install
 
     if command -v blueprint >/dev/null 2>&1; then
         NODE_OPTIONS=--openssl-legacy-provider blueprint -build || \
@@ -262,7 +310,7 @@ full_repair() {
 while true; do
     clear
     echo "============================================================"
-    echo " Pterodactyl 維護工具 v4"
+    echo " Pterodactyl 維護工具 v5"
     echo "============================================================"
     echo " 1) 全部狀態檢查"
     echo " 2) Panel 進入維護模式"
@@ -273,12 +321,13 @@ while true; do
     echo " 7) 重建前端 / Blueprint Assets"
     echo " 8) 重裝 / 修復 Blueprint Framework"
     echo " 9) 修復 Caddy Repository / GPG Key"
-    echo "10) 更新 Wings"
-    echo "11) 修復 Node / Docker / Proxy"
-    echo "12) 重啟所有相關服務"
-    echo "13) 查看 Log"
-    echo "14) apt 系統更新"
-    echo "15) 完整修復"
+    echo "10) 修復 Node.js / Yarn"
+    echo "11) 更新 Wings"
+    echo "12) 修復 Node / Docker / Proxy"
+    echo "13) 重啟所有相關服務"
+    echo "14) 查看 Log"
+    echo "15) apt 系統更新"
+    echo "16) 完整修復"
     echo " 0) 離開"
     echo
 
@@ -293,12 +342,13 @@ while true; do
         7) rebuild_frontend; pause ;;
         8) reinstall_blueprint; pause ;;
         9) repair_caddy_repo; pause ;;
-        10) update_wings; pause ;;
-        11) repair_node; pause ;;
-        12) restart_all; pause ;;
-        13) logs_menu; pause ;;
-        14) apt-get update && apt-get upgrade -y; pause ;;
-        15) full_repair; pause ;;
+        10) ensure_node_yarn; echo "✅ Node/Yarn 修復完成"; pause ;;
+        11) update_wings; pause ;;
+        12) repair_node; pause ;;
+        13) restart_all; pause ;;
+        14) logs_menu; pause ;;
+        15) apt-get update && apt-get upgrade -y; pause ;;
+        16) full_repair; pause ;;
         0) exit 0 ;;
         *) echo "無效選項"; sleep 1 ;;
     esac
