@@ -1,19 +1,25 @@
-# Pterodactyl Deploy Kit v10
+# Pterodactyl Deploy Kit v12
 
-v10 新增 Blueprint / Nebula 全自動安裝模式。
+v12 先停用 Logs 類 Blueprint Extensions，避免舊版擴充卡住安裝：
 
-Panel 安裝開始時可以選：
+- `mclogs.blueprint`
+- `consolelogs.blueprint`
+- `laravellogs.blueprint`
 
-- `1 = 全自動`（預設）
-  - 遇到 Nebula 的 `Press 'RETURN' to continue` 會自動送 Enter
-  - 其他需要單純 Enter 確認的 Blueprint extension 也會自動繼續
-  - 每個 extension 仍有安裝 timeout，預設 300 秒
-  - 某個 extension 卡死或不相容時會跳過，不拖死整套部署
+即使選「全部 Extensions」，這三個目前也不會自動安裝。
 
-- `2 = 互動`
-  - 安裝器需要輸入時由你自己操作
+其他功能保留：
 
-## 主入口
+- Panel 一鍵部署
+- Node / Wings
+- Blueprint + Nebula
+- Extension 硬性 timeout watchdog
+- 全自動 Enter
+- 25565-25600 IPv6 Proxy
+- Public IPv6 顯示替換
+- Maintenance / 更新 / 修復
+
+主入口：
 
 ```bash
 curl -fL "https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh?nocache=$(date +%s)" -o ptero-tool.sh
@@ -21,8 +27,8 @@ chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
 ```
 
-啟動應顯示：
+啟動時確認：
 
 ```text
-Pterodactyl Deploy Manager v10
+Pterodactyl Deploy Manager v12
 ```

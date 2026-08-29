@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v10
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v12
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v10"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v12"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -75,7 +75,7 @@ echo "  3 = 只裝 Blueprint + Nebula"
 read -rp "選擇 [1]: " EXT_MODE
 EXT_MODE="${EXT_MODE:-1}"
 
-read -rp "每個 Blueprint Extension 最長安裝秒數 [300]: " EXT_TIMEOUT
+read -rp "每個 Blueprint Extension 硬性最長安裝秒數 [300]: " EXT_TIMEOUT
 EXT_TIMEOUT="${EXT_TIMEOUT:-300}"
 
 [[ "$EXT_TIMEOUT" =~ ^[0-9]+$ ]] || EXT_TIMEOUT=300
@@ -179,7 +179,7 @@ info "安裝 Panel / Blueprint / 編譯依賴"
 apt_retry install -y \
     ca-certificates curl wget gnupg gpg lsb-release apt-transport-https \
     software-properties-common debian-keyring debian-archive-keyring \
-    unzip zip tar git rsync jq nano cron openssl coreutils \
+    unzip zip tar git rsync jq nano cron openssl coreutils util-linux \
     build-essential python3 python3-pip make g++ pkg-config \
     mariadb-server mariadb-client redis-server \
     php8.3 php8.3-cli php8.3-common php8.3-fpm php8.3-gd php8.3-mysql \
@@ -409,6 +409,60 @@ WORK="$PTERO_DIR/.auto-blueprints"
 mkdir -p "$WORK"
 FAILED=()
 
+run_blueprint_with_watchdog() {
+    local name="$1"
+    local seconds="$2"
+    local mode="${3:-auto}"
+    local pid rc watcher
+
+    # 用新的 session/process group 跑 Extension。
+    # 超時時直接殺整個 process group，避免 custom install script
+    # 產生的子程序脫離 timeout 後繼續卡住。
+    if [[ "$mode" == "interactive" ]]; then
+        setsid bash -c 'exec blueprint -install "$1"' _ "$name" &
+    else
+        setsid bash -c '
+            set +o pipefail
+            yes "" | blueprint -install "$1"
+            exit ${PIPESTATUS[1]}
+        ' _ "$name" &
+    fi
+
+    pid=$!
+
+    (
+        sleep "$seconds"
+
+        if kill -0 "$pid" 2>/dev/null; then
+            echo
+            echo "⏱️ $name 已達 ${seconds}s，正在停止整個安裝程序群組..."
+            kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+            sleep 10
+
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "🛑 $name 仍未退出，強制 KILL..."
+                kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+            fi
+        fi
+    ) &
+    watcher=$!
+
+    set +e
+    wait "$pid"
+    rc=$?
+    set -e
+
+    kill "$watcher" 2>/dev/null || true
+    wait "$watcher" 2>/dev/null || true
+
+    # 124 作為我們自己的 timeout 狀態。
+    if [[ "$rc" == "143" || "$rc" == "137" ]]; then
+        return 124
+    fi
+
+    return "$rc"
+}
+
 download_install() {
     local base="$1"
     local name="$2"
@@ -426,23 +480,16 @@ download_install() {
     cp -f "$dst" "$PTERO_DIR/$name"
 
     if [[ "${BP_INSTALL_MODE:-1}" == "2" ]]; then
-        echo "🧩 互動安裝 $name（最長 ${EXT_TIMEOUT}s）"
+        echo "🧩 互動安裝 $name（硬性上限 ${EXT_TIMEOUT}s）"
         set +e
-        timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" \
-            blueprint -install "$name"
+        run_blueprint_with_watchdog "$name" "$EXT_TIMEOUT" interactive
         rc=$?
         set -e
     else
-        echo "🤖 全自動安裝 $name（自動送 Enter，最長 ${EXT_TIMEOUT}s）"
+        echo "🤖 全自動安裝 $name（自動送 Enter，硬性上限 ${EXT_TIMEOUT}s）"
         set +e
-
-        # 使用獨立 bash pipeline，讓 yes 的 SIGPIPE 不會因主腳本 set -o pipefail
-        # 被誤判為安裝失敗。Blueprint/Extension 收到 Enter 可自動通過
-        # "Press RETURN to continue" 這類提示。
-        timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" \
-            bash -c 'yes "" | blueprint -install "$1"' _ "$name"
+        run_blueprint_with_watchdog "$name" "$EXT_TIMEOUT" auto
         rc=$?
-
         set -e
     fi
 
@@ -451,30 +498,28 @@ download_install() {
             echo "✅ $name 安裝完成"
             ;;
         124|137|143)
-            echo "⚠️ $name 安裝超時或被終止，已自動跳過"
+            echo "⚠️ $name 已超過 ${EXT_TIMEOUT}s，已強制終止並跳過"
             FAILED+=("$name (timeout)")
             ;;
         *)
-            echo "⚠️ $name 安裝失敗（exit=$rc），已自動跳過"
+            echo "⚠️ $name 安裝失敗（exit=$rc），已跳過"
             FAILED+=("$name (exit=$rc)")
             ;;
     esac
 
-    # 保險：清理同名殘留安裝行程
-    pkill -f "blueprint.*-install.*${name}" 2>/dev/null || true
+    # 再清一次可能殘留的同名 Blueprint 安裝程序。
+    pkill -9 -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
+echo "ℹ️ v12：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
 info "安裝 Nebula"
 download_install "$UI_BASE" "nebula.blueprint"
 
 RECOMMENDED=(
     loader.blueprint
     adminauditlogs.blueprint
-    consolelogs.blueprint
-    laravellogs.blueprint
     resourcealerts.blueprint
     resourcemanager.blueprint
-    mclogs.blueprint
     mctools.blueprint
     mcplugins.blueprint
     minecraftplayermanager.blueprint
@@ -499,12 +544,12 @@ RECOMMENDED=(
 
 ALL_EXTENSIONS=(
     adminauditlogs.blueprint huxregister.blueprint loader.blueprint lyrdyannounce.blueprint
-    mclogs.blueprint mcplugins.blueprint mctools.blueprint minecraftplayermanager.blueprint
+    mcplugins.blueprint mctools.blueprint minecraftplayermanager.blueprint
     playerlisting.blueprint resourcealerts.blueprint resourcemanager.blueprint
     serverbackgrounds.blueprint serversplitter.blueprint simplefavicons.blueprint
     snowflakes.blueprint sociallogin.blueprint startupchanger.blueprint subdomains.blueprint
     tawkto.blueprint versionchanger.blueprint pteromonaco.blueprint urldownloader.blueprint
-    consolelogs.blueprint laravellogs.blueprint vanillatweaks.blueprint
+    vanillatweaks.blueprint
     modrinthbrowser.blueprint nopagination.blueprint activitypurges.blueprint
     redirect.blueprint simplefooters.blueprint paneladdressoverride.blueprint
     shownodeids.blueprint votifiertester.blueprint sidebar.blueprint translations.blueprint
@@ -579,7 +624,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v10 完成"
+echo "✅ Panel 部署 v12 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl 維護 / 修復 / 更新工具 v10
+# Pterodactyl 維護 / 修復 / 更新工具 v12
 # ============================================================
 
 PTERO_DIR="/var/www/pterodactyl"
@@ -24,6 +24,15 @@ export COMPOSER_ALLOW_SUPERUSER=1
 has_panel(){ [[ -f "$PTERO_DIR/artisan" ]]; }
 has_wings(){ [[ -x /usr/local/bin/wings ]]; }
 pause(){ read -rp "按 Enter 繼續..." _; }
+
+kill_stuck_blueprint() {
+    echo "🧹 清理卡住的 Blueprint / Extension 安裝程序..."
+    pkill -TERM -f 'blueprint -install' 2>/dev/null || true
+    sleep 2
+    pkill -KILL -f 'blueprint -install' 2>/dev/null || true
+    pkill -KILL -f '/var/www/pterodactyl/.*install' 2>/dev/null || true
+    echo "✅ 已嘗試清理卡住的 Blueprint 安裝程序"
+}
 
 install_yarn_classic() {
     echo "🔧 安裝 / 修復 Yarn Classic 1.22.22..."
@@ -310,7 +319,7 @@ full_repair() {
 while true; do
     clear
     echo "============================================================"
-    echo " Pterodactyl 維護工具 v10"
+    echo " Pterodactyl 維護工具 v12"
     echo "============================================================"
     echo " 1) 全部狀態檢查"
     echo " 2) Panel 進入維護模式"
@@ -328,6 +337,7 @@ while true; do
     echo "14) 查看 Log"
     echo "15) apt 系統更新"
     echo "16) 完整修復"
+    echo "17) 強制清理卡住的 Blueprint Extension 安裝"
     echo " 0) 離開"
     echo
 
@@ -349,6 +359,7 @@ while true; do
         14) logs_menu; pause ;;
         15) apt-get update && apt-get upgrade -y; pause ;;
         16) full_repair; pause ;;
+        17) kill_stuck_blueprint; pause ;;
         0) exit 0 ;;
         *) echo "無效選項"; sleep 1 ;;
     esac
