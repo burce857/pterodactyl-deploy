@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl 維護 / 修復 / 更新工具 v14
+# Pterodactyl 維護 / 修復 / 更新工具 v16
 # ============================================================
 
 PTERO_DIR="/var/www/pterodactyl"
@@ -209,8 +209,20 @@ EOF
 
     safe_yarn_install
     chmod +x blueprint.sh
-    bash blueprint.sh
-    echo "✅ Blueprint 重裝完成"
+
+    if command -v blueprint >/dev/null 2>&1; then
+        echo "ℹ️ Blueprint 已安裝，改用 framework upgrade/repair 流程"
+        if blueprint -help 2>/dev/null | grep -q -- '-upgrade'; then
+            blueprint -upgrade || true
+        else
+            echo "ℹ️ 目前版本無 -upgrade 指令，保留既有 Blueprint 並重新建置"
+        fi
+    else
+        bash blueprint.sh
+    fi
+
+    command -v blueprint >/dev/null 2>&1 || { echo "❌ Blueprint 仍不可用"; return 1; }
+    echo "✅ Blueprint 修復完成"
 }
 
 rebuild_frontend() {
@@ -319,7 +331,7 @@ full_repair() {
 while true; do
     clear
     echo "============================================================"
-    echo " Pterodactyl 維護工具 v14"
+    echo " Pterodactyl 維護工具 v16"
     echo "============================================================"
     echo " 1) 全部狀態檢查"
     echo " 2) Panel 進入維護模式"

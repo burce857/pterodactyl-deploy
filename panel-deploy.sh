@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v14
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v16
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v14"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v16"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -68,24 +68,10 @@ if [[ -z "$DB_PASS" ]]; then
 fi
 
 echo
-echo "Blueprint 擴充安裝模式："
-echo "  1 = 推薦擴充"
-echo "  2 = 你列出的全部擴充"
-echo "  3 = 只裝 Blueprint + Nebula"
-read -rp "選擇 [1]: " EXT_MODE
-EXT_MODE="${EXT_MODE:-1}"
-
-read -rp "每個 Blueprint Extension 硬性最長安裝秒數 [300]: " EXT_TIMEOUT
-EXT_TIMEOUT="${EXT_TIMEOUT:-300}"
-
-[[ "$EXT_TIMEOUT" =~ ^[0-9]+$ ]] || EXT_TIMEOUT=300
-
-echo
-echo "Blueprint 安裝模式："
-echo "  1 = 全自動（預設，自動送 Enter 給 Nebula/Extension 安裝提示）"
-echo "  2 = 互動（需要時自己按 Enter/輸入）"
-read -rp "選擇 [1]: " BP_INSTALL_MODE
-BP_INSTALL_MODE="${BP_INSTALL_MODE:-1}"
+echo "ℹ️ v16 UI-only 模式：只安裝 Blueprint Framework + Nebula UI"
+echo "ℹ️ 所有其他 Blueprint Extensions 暫時全部跳過"
+EXT_TIMEOUT=300
+BP_INSTALL_MODE=1
 [[ -n "$PANEL_DOMAIN" && -n "$ADMIN_EMAIL" && -n "$ADMIN_PASS" ]] || fail "必要欄位不可空白"
 
 # ------------------------------------------------------------
@@ -381,25 +367,50 @@ systemctl restart caddy
 # ------------------------------------------------------------
 # Blueprint
 # ------------------------------------------------------------
-info "安裝 Blueprint Framework"
 cd "$PTERO_DIR"
 
-curl -fL -o release.zip https://github.com/BlueprintFramework/framework/releases/latest/download/release.zip
-unzip -o release.zip
-rm -f release.zip
+if command -v blueprint >/dev/null 2>&1; then
+    info "偵測到 Blueprint 已安裝，跳過首次安裝流程"
+    echo "✅ Blueprint: $(blueprint -version 2>/dev/null || echo installed)"
 
-cat > .blueprintrc <<'EOF'
+    # 仍補齊 .blueprintrc 與前端依賴，讓重跑腳本可以繼續安裝 Extensions。
+    cat > .blueprintrc <<'EOF'
 WEBUSER="www-data";
 OWNERSHIP="www-data:www-data";
 USERSHELL="/bin/bash";
 EOF
 
-safe_yarn_install "$PTERO_DIR"
-chmod +x blueprint.sh
-bash blueprint.sh
+    safe_yarn_install "$PTERO_DIR" || true
+else
+    info "安裝 Blueprint Framework"
 
-if ! command -v blueprint >/dev/null 2>&1; then
-    fail "Blueprint CLI 安裝失敗"
+    curl -fL -o release.zip https://github.com/BlueprintFramework/framework/releases/latest/download/release.zip
+    unzip -o release.zip
+    rm -f release.zip
+
+    cat > .blueprintrc <<'EOF'
+WEBUSER="www-data";
+OWNERSHIP="www-data:www-data";
+USERSHELL="/bin/bash";
+EOF
+
+    safe_yarn_install "$PTERO_DIR"
+    chmod +x blueprint.sh
+
+    set +e
+    bash blueprint.sh
+    bp_install_rc=$?
+    set -e
+
+    # Blueprint 的安裝器如果回覆 "already installed"，不要讓整支腳本失敗。
+    if ! command -v blueprint >/dev/null 2>&1; then
+        if [[ "$bp_install_rc" -ne 0 ]]; then
+            fail "Blueprint CLI 安裝失敗 (exit=$bp_install_rc)"
+        fi
+        fail "Blueprint CLI 安裝後仍找不到"
+    fi
+
+    echo "✅ Blueprint: $(blueprint -version 2>/dev/null || echo installed)"
 fi
 
 # ------------------------------------------------------------
@@ -520,75 +531,13 @@ download_install() {
     pkill -9 -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
-echo "ℹ️ v14：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
+echo "ℹ️ v16：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
 info "安裝 Nebula"
 download_install "$UI_BASE" "nebula.blueprint"
 
-RECOMMENDED=(
-    loader.blueprint
-    adminauditlogs.blueprint
-    resourcealerts.blueprint
-    resourcemanager.blueprint
-    mctools.blueprint
-    playerlisting.blueprint
-    modrinthbrowser.blueprint
-    motdmaker.blueprint
-    serverpropsmanager.blueprint
-    configeditor.blueprint
-    monacoeditor.blueprint
-    urldownloader.blueprint
-    databaseimportexport.blueprint
-    autobackups.blueprint
-    stats.blueprint
-    vminfo.blueprint
-    shownodeids.blueprint
-    simplefavicons.blueprint
-    simplefooters.blueprint
-    nopagination.blueprint
-    activitypurges.blueprint
-    trashbin.blueprint
-)
-
-ALL_EXTENSIONS=(
-    adminauditlogs.blueprint huxregister.blueprint loader.blueprint lyrdyannounce.blueprint
-    mctools.blueprint
-    playerlisting.blueprint resourcealerts.blueprint resourcemanager.blueprint
-    serverbackgrounds.blueprint serversplitter.blueprint simplefavicons.blueprint
-    snowflakes.blueprint sociallogin.blueprint startupchanger.blueprint subdomains.blueprint
-    tawkto.blueprint versionchanger.blueprint pteromonaco.blueprint urldownloader.blueprint
-    vanillatweaks.blueprint
-    modrinthbrowser.blueprint nopagination.blueprint activitypurges.blueprint
-    redirect.blueprint simplefooters.blueprint paneladdressoverride.blueprint
-    shownodeids.blueprint votifiertester.blueprint sidebar.blueprint translations.blueprint
-    monacoeditor.blueprint minecraftpluginmanager.blueprint subdomainmanager.blueprint
-    serverimporter.blueprint pstatistics.blueprint pullfiles.blueprint
-    serverpropsmanager.blueprint motdmaker.blueprint servericonimporter.blueprint
-    sagaautosuspension.blueprint sagaminecraftmodpackinstaller.blueprint
-    blueannoucements.blueprint trashbin.blueprint eggchanger.blueprint
-    mysqlautobackup.blueprint configeditor.blueprint customserversort.blueprint
-    databaseimportexport.blueprint minecraftmodmanager.blueprint serverid.blueprint
-    stats.blueprint vminfo.blueprint customcss.blueprint autobackups.blueprint
-    node.blueprint mcp.blueprint mcplayer.blueprint pterodactylramburst.blueprint
-    pterodactylpanelban.blueprint pterodactylcpuburst.blueprint
-)
-
-case "$EXT_MODE" in
-    1)
-        info "安裝推薦 Extensions"
-        for x in "${RECOMMENDED[@]}"; do download_install "$EXT_BASE" "$x"; done
-        ;;
-    2)
-        info "安裝全部 Extensions（可能互相衝突）"
-        for x in "${ALL_EXTENSIONS[@]}"; do download_install "$EXT_BASE" "$x"; done
-        ;;
-    3)
-        echo "ℹ️ 跳過額外 Extensions"
-        ;;
-    *)
-        echo "⚠️ 無效選項，改用推薦模式"
-        for x in "${RECOMMENDED[@]}"; do download_install "$EXT_BASE" "$x"; done
-        ;;
-esac
+echo
+echo "⏭️ UI-only 模式：其他 Blueprint Extensions 全部不安裝。"
+echo "   明天再逐一測試相容性後再決定要加哪些。"
 
 # ------------------------------------------------------------
 # Final build / repair
@@ -631,7 +580,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v14 完成"
+echo "✅ Panel 部署 v16 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
@@ -648,6 +597,7 @@ if ((${#FAILED[@]})); then
     echo "⚠️ 以下第三方 Extension 失敗："
     printf ' - %s\n' "${FAILED[@]}"
 fi
-echo "Blueprint 模式: $([[ "${BP_INSTALL_MODE:-1}" == "2" ]] && echo 互動 || echo 全自動)"
+echo "Blueprint 模式: UI-only（Blueprint + Nebula）"
+command -v blueprint >/dev/null 2>&1 && echo "Blueprint: $(blueprint -version 2>/dev/null || echo installed)"
 echo "Log: $LOG"
 echo "============================================================"

@@ -1,14 +1,25 @@
-# Pterodactyl Deploy Kit v14
+# Pterodactyl Deploy Kit v16 — UI Only
 
-v14 新增黑名單：
+這版先求穩定，只安裝：
 
-- mclogs.blueprint
-- consolelogs.blueprint
-- laravellogs.blueprint
-- mcplugins.blueprint
-- minecraftplayermanager.blueprint
+- Pterodactyl Panel
+- Caddy
+- MariaDB
+- Redis
+- PHP / Composer
+- cron / pteroq
+- Node.js / Yarn
+- Blueprint Framework
+- `nebula.blueprint` UI
 
-`minecraftplayermanager.blueprint` 也確認是 beta-2024-08，會在 beta-2026-08 卡在 46%，因此現在會直接跳過，不再等 300 秒。
+暫時 **不安裝任何其他 Blueprint Extensions**。
+
+這樣可以先確認：
+1. Panel 能不能正常啟動
+2. Nebula UI 能不能正常顯示
+3. Blueprint Framework 本身是否穩定
+
+明天再逐一測試 Extension，相容的再加回去。
 
 主入口：
 
@@ -18,8 +29,8 @@ chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
 ```
 
-啟動確認：
+啟動應看到：
 
 ```text
-Pterodactyl Deploy Manager v14
+Pterodactyl Deploy Manager v16
 ```
