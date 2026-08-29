@@ -1,41 +1,26 @@
-# Pterodactyl Deploy Kit v17
+# Pterodactyl Deploy Kit v19
 
-v17 在 Node 安裝器加入 `/etc/pterodactyl` 範例設定。
+v19 專門修正「Network / Public Address Manager 看不到安裝 Public Address 功能」的問題。
 
-Node 安裝時會先建立：
-
-```text
-/etc/pterodactyl/
-├── config.yml.example
-├── public-ipv6.example
-└── README.txt
-```
-
-Wings 從 Panel 抓設定成功後，真正設定檔會是：
+現在主選單直接多一個：
 
 ```text
-/etc/pterodactyl/config.yml
+5) 直接安裝/更新 127.0.0.1 -> Public IPv6 顯示功能
 ```
 
-因此之後要改 Wings 可以直接：
+不需要先進 Network 子選單。
 
-```bash
-nano /etc/pterodactyl/config.yml
-systemctl restart wings
-```
+另外：
+- `network-config.sh install-public-address` 可直接安裝顯示功能
+- `ptero-tool.sh` 下載子腳本時會加 nocache，避免 GitHub/CDN 還抓到舊版
+- Network 子選單本身仍保留：
+  `Panel：安裝/更新 127.0.0.1 -> Public IPv6 顯示功能`
 
-`config.yml.example` 只是範例，不會覆蓋或取代真正設定。
-
-主入口：
-
-```bash
-curl -fL "https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh?nocache=$(date +%s)" -o ptero-tool.sh
-chmod +x ptero-tool.sh
-sudo ./ptero-tool.sh
-```
-
-啟動應看到：
+注意：這個功能要在 **Panel 主機** 執行，因為它會修改：
 
 ```text
-Pterodactyl Deploy Manager v17
+/var/www/pterodactyl/resources/views/
+/var/www/pterodactyl/storage/app/publicaddress/
 ```
+
+Node 主機只需要設定 Public IPv6 / proxy，不需要安裝 Panel 顯示 runtime。

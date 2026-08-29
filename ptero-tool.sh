@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # https://github.com/burce857/pterodactyl-deploy
 # ============================================================
 
-VERSION="17"
+VERSION="19"
 REPO_RAW="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main"
 CACHE_DIR="/var/tmp/pterodactyl-deploy"
 LOG="/var/log/pterodactyl-manager.log"
@@ -115,6 +115,16 @@ run_component() {
     /usr/bin/env bash "$DOWNLOADED_PATH"
 }
 
+run_network_action() {
+    local action="$1"
+    download_script "network-config.sh"
+    [[ -n "${DOWNLOADED_PATH:-}" && -f "$DOWNLOADED_PATH" ]] || {
+        echo "❌ network-config.sh 下載失敗"
+        return 1
+    }
+    /usr/bin/env bash "$DOWNLOADED_PATH" "$action"
+}
+
 show_status() {
     echo
     echo "===== 系統 ====="
@@ -207,7 +217,7 @@ while true; do
     echo " 8) 安裝 ptero-tool 全域指令"
     echo " 9) 更新這個主選單"
     echo
-    echo "10) 清除下載快取"
+    echo "11) 清除下載快取"
     echo
     echo " 0) 離開"
     echo
@@ -229,18 +239,21 @@ while true; do
             run_component "network-config.sh"
             ;;
         5)
+            run_network_action "install-public-address"
+            ;;
+        6)
             show_status
             read -rp "按 Enter 回主選單..." _
             ;;
-        8)
+        9)
             install_manager_command
             read -rp "按 Enter 回主選單..." _
             ;;
-        9)
+        10)
             update_manager
             read -rp "按 Enter 回主選單..." _
             ;;
-        10)
+        11)
             rm -rf "$CACHE_DIR"
             mkdir -p "$CACHE_DIR"
             chmod 755 "$CACHE_DIR"

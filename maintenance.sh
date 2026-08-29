@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl 維護 / 修復 / 更新工具 v17
+# Pterodactyl 維護 / 修復 / 更新工具 v19
 # ============================================================
 
 PTERO_DIR="/var/www/pterodactyl"
@@ -331,7 +331,7 @@ full_repair() {
 while true; do
     clear
     echo "============================================================"
-    echo " Pterodactyl 維護工具 v17"
+    echo " Pterodactyl 維護工具 v19"
     echo "============================================================"
     echo " 1) 全部狀態檢查"
     echo " 2) Panel 進入維護模式"
@@ -376,3 +376,14 @@ while true; do
         *) echo "無效選項"; sleep 1 ;;
     esac
 done
+
+
+repair_caddy_sites_import() {
+    mkdir -p /etc/caddy/sites
+    touch /etc/caddy/Caddyfile
+    if ! grep -Fq 'import /etc/caddy/sites/*.caddy' /etc/caddy/Caddyfile; then
+        printf '\n# Managed by pterodactyl-deploy\nimport /etc/caddy/sites/*.caddy\n' >> /etc/caddy/Caddyfile
+    fi
+    caddy validate --config /etc/caddy/Caddyfile
+    systemctl reload caddy 2>/dev/null || systemctl restart caddy
+}

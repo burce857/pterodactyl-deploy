@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_VERSION="19"
 PTERO_DIR="/var/www/pterodactyl"
 MAP_FILE="$PTERO_DIR/storage/app/publicaddress/node-ips.json"
 PARTIAL="$PTERO_DIR/resources/views/ptero-tool-public-address.blade.php"
@@ -290,10 +291,33 @@ remove_mapping() {
     echo "✅ 已刪除 $node"
 }
 
+
+# ------------------------------------------------------------
+# Direct actions (for ptero-tool)
+# ------------------------------------------------------------
+case "${1:-}" in
+    install-public-address)
+        install_panel_runtime
+        exit $?
+        ;;
+    mapping)
+        manage_mapping
+        exit $?
+        ;;
+    proxy)
+        setup_proxy
+        exit $?
+        ;;
+    node-public-ipv6)
+        set_node_public_ipv6
+        exit $?
+        ;;
+esac
+
 while true; do
     clear
     echo "============================================================"
-    echo " Network / Public Address Manager v17"
+    echo " Network / Public Address Manager v19"
     echo "============================================================"
     echo " 1) 設定/重建 Minecraft IPv6 Proxy 25565-25600"
     echo " 2) 設定這台 Node 的 Public IPv6"

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v17
+# Pterodactyl Wings Node 一鍵部署 v19
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v17"
+echo " Pterodactyl Wings Node 一鍵部署 v19"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -59,6 +59,7 @@ else
     echo "127.0.1.1 ${NODE_NAME}" >> /etc/hosts
 fi
 
+read -rp "Node FQDN（例如 node1.example.com，留空則不設定 Caddy HTTPS 反代）: " NODE_FQDN
 info "安裝 Node 常用依賴"
 apt_retry update -y
 apt_retry install -y \
@@ -206,7 +207,7 @@ PartOf=docker.service
 User=root
 WorkingDirectory=/etc/pterodactyl
 LimitNOFILE=4096
-PIDFile=/var/run/wings/daemon.pid
+PIDFile=/run/wings/daemon.pid
 ExecStart=/usr/local/bin/wings
 Restart=on-failure
 StartLimitInterval=180
@@ -325,6 +326,60 @@ if [[ "$SETUP_PROXY" =~ ^[Yy]$ ]]; then
     echo "IPv6 Proxy: ${INTERNAL_IPV6}:${START_PORT}-${END_PORT} -> ${BACKEND_IPV4}:same-port"
 fi
 echo
+
+# ------------------------------------------------------------
+# Node HTTPS reverse proxy (Caddy)
+# ------------------------------------------------------------
+setup_node_caddy_proxy() {
+    [[ -n "${NODE_FQDN:-}" ]] || {
+        echo "ℹ️ 未提供 Node FQDN，略過 Caddy HTTPS 反代設定"
+        return 0
+    }
+
+    if ! command -v caddy >/dev/null 2>&1; then
+        echo "ℹ️ 安裝 Caddy..."
+        apt-get update
+        apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+        rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+            | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        chmod 0644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+            -o /etc/apt/sources.list.d/caddy-stable.list
+        chmod 0644 /etc/apt/sources.list.d/caddy-stable.list
+
+        apt-get update
+        apt-get install -y caddy
+    fi
+
+    mkdir -p /etc/caddy/sites
+    touch /etc/caddy/Caddyfile
+
+    # 只加 import，不覆蓋既有 Panel / 其他 Node 設定。
+    if ! grep -Fq 'import /etc/caddy/sites/*.caddy' /etc/caddy/Caddyfile; then
+        printf '\n# Managed by pterodactyl-deploy\nimport /etc/caddy/sites/*.caddy\n' >> /etc/caddy/Caddyfile
+    fi
+
+    safe_name="$(printf '%s' "$NODE_FQDN" | tr -c 'A-Za-z0-9._-' '_')"
+
+    cat >"/etc/caddy/sites/${safe_name}.caddy" <<EOF
+${NODE_FQDN} {
+    reverse_proxy 127.0.0.1:8080
+}
+EOF
+
+    echo "🔎 驗證 Caddy 設定..."
+    caddy validate --config /etc/caddy/Caddyfile
+
+    systemctl enable caddy >/dev/null 2>&1 || true
+    systemctl reload caddy 2>/dev/null || systemctl restart caddy
+
+    echo "✅ Caddy HTTPS 反代已設定：https://${NODE_FQDN}:443 → http://127.0.0.1:8080"
+}
+
+setup_node_caddy_proxy
+
 echo "設定檔："
 echo "  真正設定：/etc/pterodactyl/config.yml"
 echo "  範例設定：/etc/pterodactyl/config.yml.example"

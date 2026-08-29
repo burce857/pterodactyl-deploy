@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v17
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v19
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v17"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v19"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -68,7 +68,7 @@ if [[ -z "$DB_PASS" ]]; then
 fi
 
 echo
-echo "ℹ️ v17 UI-only 模式：只安裝 Blueprint Framework + Nebula UI"
+echo "ℹ️ v19 UI-only 模式：只安裝 Blueprint Framework + Nebula UI"
 echo "ℹ️ 所有其他 Blueprint Extensions 暫時全部跳過"
 EXT_TIMEOUT=300
 BP_INSTALL_MODE=1
@@ -345,22 +345,32 @@ CRON_LINE='* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 
 # Caddy config
 # ------------------------------------------------------------
 info "設定 Caddy"
-cat >/etc/caddy/Caddyfile <<EOF
+# ------------------------------------------------------------
+# Caddy — 使用獨立 site snippet，避免 Panel / Node 互相覆蓋
+# ------------------------------------------------------------
+mkdir -p /etc/caddy/sites
+
+# 保留原本 Caddyfile；只確保它有載入 sites/*.caddy
+touch /etc/caddy/Caddyfile
+if ! grep -Fq 'import /etc/caddy/sites/*.caddy' /etc/caddy/Caddyfile; then
+    printf '
+# Managed by pterodactyl-deploy
+import /etc/caddy/sites/*.caddy
+' >> /etc/caddy/Caddyfile
+fi
+
+cat >/etc/caddy/sites/pterodactyl-panel.caddy <<EOF
 ${PANEL_DOMAIN} {
-    root * ${PTERO_DIR}/public
-    encode zstd gzip
+    root * /var/www/pterodactyl/public
+    encode gzip zstd
     php_fastcgi unix//run/php/php8.3-fpm.sock
     file_server
-
-    @blocked {
-        path /.env
-        path /storage/*
-    }
-    respond @blocked 404
 }
 EOF
 
 caddy validate --config /etc/caddy/Caddyfile
+systemctl enable caddy >/dev/null 2>&1 || true
+systemctl reload caddy 2>/dev/null || systemctl restart caddy
 systemctl enable --now caddy
 systemctl restart caddy
 
@@ -531,7 +541,7 @@ download_install() {
     pkill -9 -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
-echo "ℹ️ v17：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
+echo "ℹ️ v19：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
 info "安裝 Nebula"
 download_install "$UI_BASE" "nebula.blueprint"
 
@@ -580,7 +590,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v17 完成"
+echo "✅ Panel 部署 v19 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
