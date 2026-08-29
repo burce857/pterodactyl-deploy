@@ -1,23 +1,28 @@
-# Pterodactyl Deploy Kit v12
+# Pterodactyl Deploy Kit v13
 
-v12 先停用 Logs 類 Blueprint Extensions，避免舊版擴充卡住安裝：
+v13 新增「已知問題 Blueprint Extension 黑名單」。
+
+目前會直接跳過：
 
 - `mclogs.blueprint`
 - `consolelogs.blueprint`
 - `laravellogs.blueprint`
+- `mcplugins.blueprint`
 
-即使選「全部 Extensions」，這三個目前也不會自動安裝。
+其中 `mcplugins.blueprint` 已確認在 Blueprint `beta-2026-08` 上會停在 46%，而它本身標示為 `beta-2024-08`。
 
-其他功能保留：
+即使選擇「全部 Extensions」，上述項目也會直接顯示：
 
-- Panel 一鍵部署
-- Node / Wings
-- Blueprint + Nebula
-- Extension 硬性 timeout watchdog
-- 全自動 Enter
-- 25565-25600 IPv6 Proxy
-- Public IPv6 顯示替換
-- Maintenance / 更新 / 修復
+```text
+⏭️ 跳過已知不相容/會卡住的擴充：mcplugins.blueprint
+```
+
+不會浪費 300 秒等待 timeout。
+
+其他 Extension 仍保留：
+- 自動 Enter
+- 硬性 watchdog timeout
+- 安裝失敗自動跳下一個
 
 主入口：
 
@@ -27,8 +32,8 @@ chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
 ```
 
-啟動時確認：
+啟動應看到：
 
 ```text
-Pterodactyl Deploy Manager v12
+Pterodactyl Deploy Manager v13
 ```

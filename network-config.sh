@@ -293,7 +293,7 @@ remove_mapping() {
 while true; do
     clear
     echo "============================================================"
-    echo " Network / Public Address Manager v12"
+    echo " Network / Public Address Manager v13"
     echo "============================================================"
     echo " 1) 設定/重建 Minecraft IPv6 Proxy 25565-25600"
     echo " 2) 設定這台 Node 的 Public IPv6"

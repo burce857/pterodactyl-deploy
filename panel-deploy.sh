@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v12
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v13
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v12"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v13"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -408,6 +408,7 @@ fi
 WORK="$PTERO_DIR/.auto-blueprints"
 mkdir -p "$WORK"
 FAILED=()
+SKIPPED=()
 
 run_blueprint_with_watchdog() {
     local name="$1"
@@ -469,6 +470,14 @@ download_install() {
     local dst="$WORK/$name"
     local rc=0
 
+    case "$name" in
+        mclogs.blueprint|consolelogs.blueprint|laravellogs.blueprint|mcplugins.blueprint)
+            echo "⏭️ 跳過已知不相容/會卡住的擴充：$name"
+            SKIPPED+=("$name")
+            return 0
+            ;;
+    esac
+
     echo
     echo "⬇️ 下載 $name"
     if ! curl -fL --retry 3 --retry-delay 2 -o "$dst" "$base/$name"; then
@@ -511,7 +520,7 @@ download_install() {
     pkill -9 -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
-echo "ℹ️ v12：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
+echo "ℹ️ v13：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
 info "安裝 Nebula"
 download_install "$UI_BASE" "nebula.blueprint"
 
@@ -521,7 +530,6 @@ RECOMMENDED=(
     resourcealerts.blueprint
     resourcemanager.blueprint
     mctools.blueprint
-    mcplugins.blueprint
     minecraftplayermanager.blueprint
     playerlisting.blueprint
     modrinthbrowser.blueprint
@@ -544,7 +552,7 @@ RECOMMENDED=(
 
 ALL_EXTENSIONS=(
     adminauditlogs.blueprint huxregister.blueprint loader.blueprint lyrdyannounce.blueprint
-    mcplugins.blueprint mctools.blueprint minecraftplayermanager.blueprint
+    mctools.blueprint minecraftplayermanager.blueprint
     playerlisting.blueprint resourcealerts.blueprint resourcemanager.blueprint
     serverbackgrounds.blueprint serversplitter.blueprint simplefavicons.blueprint
     snowflakes.blueprint sociallogin.blueprint startupchanger.blueprint subdomains.blueprint
@@ -624,7 +632,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v12 完成"
+echo "✅ Panel 部署 v13 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
@@ -633,6 +641,10 @@ echo
 echo "APP_KEY（請另外備份）:"
 grep '^APP_KEY=' "$PTERO_DIR/.env" || true
 echo
+if ((${#SKIPPED[@]})); then
+    echo "⏭️ 已自動跳過的已知問題 Extension："
+    printf ' - %s\n' "${SKIPPED[@]}"
+fi
 if ((${#FAILED[@]})); then
     echo "⚠️ 以下第三方 Extension 失敗："
     printf ' - %s\n' "${FAILED[@]}"
