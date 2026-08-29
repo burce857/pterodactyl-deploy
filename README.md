@@ -1,25 +1,30 @@
-# Pterodactyl Deploy Kit v16 — UI Only
+# Pterodactyl Deploy Kit v17
 
-這版先求穩定，只安裝：
+v17 在 Node 安裝器加入 `/etc/pterodactyl` 範例設定。
 
-- Pterodactyl Panel
-- Caddy
-- MariaDB
-- Redis
-- PHP / Composer
-- cron / pteroq
-- Node.js / Yarn
-- Blueprint Framework
-- `nebula.blueprint` UI
+Node 安裝時會先建立：
 
-暫時 **不安裝任何其他 Blueprint Extensions**。
+```text
+/etc/pterodactyl/
+├── config.yml.example
+├── public-ipv6.example
+└── README.txt
+```
 
-這樣可以先確認：
-1. Panel 能不能正常啟動
-2. Nebula UI 能不能正常顯示
-3. Blueprint Framework 本身是否穩定
+Wings 從 Panel 抓設定成功後，真正設定檔會是：
 
-明天再逐一測試 Extension，相容的再加回去。
+```text
+/etc/pterodactyl/config.yml
+```
+
+因此之後要改 Wings 可以直接：
+
+```bash
+nano /etc/pterodactyl/config.yml
+systemctl restart wings
+```
+
+`config.yml.example` 只是範例，不會覆蓋或取代真正設定。
 
 主入口：
 
@@ -32,5 +37,5 @@ sudo ./ptero-tool.sh
 啟動應看到：
 
 ```text
-Pterodactyl Deploy Manager v16
+Pterodactyl Deploy Manager v17
 ```

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v16
+# Pterodactyl Wings Node 一鍵部署 v17
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v16"
+echo " Pterodactyl Wings Node 一鍵部署 v17"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -76,6 +76,110 @@ docker info >/dev/null 2>&1 || fail "Docker 無法正常運作；VPS 可能限�
 
 info "安裝 Wings"
 mkdir -p /etc/pterodactyl
+chmod 755 /etc/pterodactyl
+
+# 先建立一份可讀的範例設定，方便之後手動修改/比對。
+# Wings configure 成功後會另外產生真正的 /etc/pterodactyl/config.yml。
+cat >/etc/pterodactyl/config.yml.example <<'EOF'
+# ============================================================
+# Pterodactyl Wings config.yml 範例
+# 這只是示範檔，不會被 Wings 直接使用。
+# 真正設定檔：/etc/pterodactyl/config.yml
+# ============================================================
+
+debug: false
+
+uuid: "NODE-UUID-HERE"
+token_id: "TOKEN-ID-HERE"
+token: "TOKEN-HERE"
+
+api:
+  host: 0.0.0.0
+  port: 8080
+  ssl:
+    enabled: false
+    cert: /etc/letsencrypt/live/node.example.com/fullchain.pem
+    key: /etc/letsencrypt/live/node.example.com/privkey.pem
+
+system:
+  data: /var/lib/pterodactyl/volumes
+  sftp:
+    bind_port: 2022
+
+allowed_mounts: []
+
+remote: "https://panel.example.com"
+
+docker:
+  network:
+    interface: 172.18.0.1
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    name: pterodactyl_nw
+    ispn: false
+    driver: bridge
+    network_mode: pterodactyl_nw
+    is_internal: false
+    enable_icc: true
+    network_mtu: 1500
+    interfaces:
+      v4:
+        subnet: 172.18.0.0/16
+        gateway: 172.18.0.1
+
+throttles:
+  enabled: true
+  lines: 2000
+  line_reset_interval: 100
+
+remote_query:
+  timeout: 30
+  boot_servers_per_page: 50
+
+crash_detection:
+  enabled: true
+  detect_clean_exit_as_crash: true
+  timeout: 60
+EOF
+
+cat >/etc/pterodactyl/public-ipv6.example <<'EOF'
+# 只放這台 Node 對外給玩家連線的 Public IPv6。
+# 例如：
+2602:f470:40:1:1234:5678:abcd:ef01
+EOF
+
+cat >/etc/pterodactyl/README.txt <<'EOF'
+Pterodactyl Node 設定目錄
+==========================
+
+真正 Wings 設定：
+  /etc/pterodactyl/config.yml
+
+Wings 設定範例：
+  /etc/pterodactyl/config.yml.example
+
+Public IPv6 範例：
+  /etc/pterodactyl/public-ipv6.example
+
+Public IPv6 實際值（由腳本建立）：
+  /etc/pterodactyl/public-ipv6
+
+常用編輯：
+  nano /etc/pterodactyl/config.yml
+
+修改完 Wings 設定後：
+  systemctl restart wings
+
+查看 Wings Log：
+  journalctl -u wings -n 100 --no-pager
+EOF
+
+chmod 644 /etc/pterodactyl/config.yml.example
+chmod 644 /etc/pterodactyl/public-ipv6.example
+chmod 644 /etc/pterodactyl/README.txt
+
+echo "✅ 已建立 /etc/pterodactyl 範例設定檔"
 if [[ -n "${PUBLIC_IPV6:-}" ]]; then
     printf '%s\n' "$PUBLIC_IPV6" > /etc/pterodactyl/public-ipv6
     chmod 600 /etc/pterodactyl/public-ipv6
@@ -220,5 +324,10 @@ echo "Allocation 建議 IP: $BACKEND_IPV4"
 if [[ "$SETUP_PROXY" =~ ^[Yy]$ ]]; then
     echo "IPv6 Proxy: ${INTERNAL_IPV6}:${START_PORT}-${END_PORT} -> ${BACKEND_IPV4}:same-port"
 fi
+echo
+echo "設定檔："
+echo "  真正設定：/etc/pterodactyl/config.yml"
+echo "  範例設定：/etc/pterodactyl/config.yml.example"
+echo "  說明文件：/etc/pterodactyl/README.txt"
 echo "Log: $LOG"
 echo "============================================================"

@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # https://github.com/burce857/pterodactyl-deploy
 # ============================================================
 
-VERSION="16"
+VERSION="17"
 REPO_RAW="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main"
 CACHE_DIR="/var/tmp/pterodactyl-deploy"
 LOG="/var/log/pterodactyl-manager.log"
