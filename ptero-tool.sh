@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # https://github.com/burce857/pterodactyl-deploy
 # ============================================================
 
-VERSION="8"
+VERSION="9"
 REPO_RAW="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main"
 CACHE_DIR="/var/tmp/pterodactyl-deploy"
 LOG="/var/log/pterodactyl-manager.log"
@@ -28,6 +28,9 @@ mkdir -p "$CACHE_DIR"
 touch "$LOG"
 chmod 600 "$LOG"
 
+echo "Pterodactyl Deploy Manager v${VERSION}"
+echo "Script: ${BASH_SOURCE[0]}"
+
 info(){ echo -e "\n🔹 $*"; }
 ok(){ echo "✅ $*"; }
 warn(){ echo "⚠️ $*"; }
@@ -43,29 +46,38 @@ bootstrap_tools() {
     fi
 }
 
+DOWNLOADED_PATH=""
+
 download_script() {
     local name="$1"
     local dest="$CACHE_DIR/$name"
 
+    DOWNLOADED_PATH=""
+
     bootstrap_tools
     mkdir -p "$CACHE_DIR"
+    chmod 755 "$CACHE_DIR"
 
-    # 重要：所有提示都送到 stderr，stdout 只回傳檔案路徑。
-    # 這樣 path="$(download_script ...)" 不會把「⬇️ 下載...」也吃進變數。
-    echo "⬇️ 下載最新版 $name ..." >&2
-
+    echo "⬇️ 下載最新版 $name ..."
     rm -f "$dest"
 
     if ! curl -fL --retry 3 --retry-delay 2 \
-        "${REPO_RAW}/${name}?t=$(date +%s)" \
+        "${REPO_RAW}/${name}?nocache=$(date +%s)" \
         -o "$dest"; then
-        echo "❌ 無法下載 $name" >&2
+        echo "❌ 無法下載 $name"
         rm -f "$dest"
         return 1
     fi
 
-    if [[ ! -s "$dest" ]]; then
-        echo "❌ $name 下載後是空檔案" >&2
+    if [[ ! -f "$dest" || ! -s "$dest" ]]; then
+        echo "❌ 下載結果不存在或是空檔案：$dest"
+        rm -f "$dest"
+        return 1
+    fi
+
+    # 防止 GitHub/Proxy 回傳 HTML 錯誤頁卻是 HTTP 200。
+    if head -c 256 "$dest" | grep -qiE '<!doctype html|<html'; then
+        echo "❌ GitHub 回傳的是 HTML，不是 shell script：$dest"
         rm -f "$dest"
         return 1
     fi
@@ -73,38 +85,34 @@ download_script() {
     chmod +x "$dest"
 
     if ! bash -n "$dest"; then
-        echo "❌ $name 語法檢查失敗，拒絕執行" >&2
+        echo "❌ $name 語法檢查失敗，拒絕執行"
         rm -f "$dest"
         return 1
     fi
 
-    printf '%s\n' "$dest"
+    DOWNLOADED_PATH="$dest"
+    echo "✅ 已下載：$DOWNLOADED_PATH"
 }
 
 run_component() {
     local name="$1"
-    local path
 
-    mkdir -p "$CACHE_DIR"
-
-    if ! path="$(download_script "$name")"; then
-        echo "❌ 下載 $name 失敗"
+    if ! download_script "$name"; then
+        echo "❌ $name 下載失敗"
         return 1
     fi
 
-    # 去掉任何意外的 CR/LF，只保留最後一行的實際路徑。
-    path="$(printf '%s\n' "$path" | tail -n1 | tr -d '\r')"
-
-    if [[ ! -f "$path" ]]; then
-        echo "❌ 找不到下載後的檔案：$path"
+    if [[ -z "$DOWNLOADED_PATH" || ! -f "$DOWNLOADED_PATH" ]]; then
+        echo "❌ 下載器沒有取得有效檔案路徑"
         return 1
     fi
 
     echo
     echo "🚀 執行 $name"
-    echo "📁 $path"
+    echo "📁 $DOWNLOADED_PATH"
     echo "────────────────────────────────────────"
-    bash "$path"
+
+    /usr/bin/env bash "$DOWNLOADED_PATH"
 }
 
 show_status() {

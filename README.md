@@ -1,34 +1,38 @@
-# Pterodactyl Deploy Kit v8
+# Pterodactyl Deploy Kit v9
 
-v8 修正主選單下載器的重要問題：
-
-之前 `download_script()` 的「⬇️ 下載最新版...」提示文字和實際路徑都輸出到 stdout，
-而 `run_component()` 使用：
+v9 重新設計了主選單的下載器，不再使用：
 
 ```bash
-path="$(download_script "$name")"
+path="$(download_script ...)"
 ```
 
-因此 `path` 可能變成多行文字，最後執行時就會出現：
+所以「⬇️ 下載最新版 ...」等提示文字不可能再被誤當成檔案路徑。
 
-```text
-/var/tmp/pterodactyl-deploy/panel-deploy.sh: No such file or directory
-```
+新的流程：
 
-v8 已改成：
+1. `download_script` 直接下載到 `/var/tmp/pterodactyl-deploy/<script>`
+2. 驗證檔案存在且非空
+3. 防止 HTML 錯誤頁被當成 shell script
+4. `bash -n` 語法檢查
+5. 將真實路徑存進 `DOWNLOADED_PATH`
+6. `run_component` 直接執行該路徑
 
-- 所有下載提示輸出到 stderr
-- stdout 只回傳真正檔案路徑
-- 執行前再次確認檔案存在
-- 自動建立 `/var/tmp/pterodactyl-deploy`
-- 下載後檢查檔案非空
-- 下載後先跑 `bash -n`
-- 清除快取後自動重建目錄
+## 重要
 
-## 使用
+請先把 GitHub repo 裡的 `ptero-tool.sh` 覆蓋成 v9。
+如果 GitHub 還是舊版，重新 curl 當然仍會下載舊的主選單。
+
+## 執行
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh -o ptero-tool.sh
+rm -f ptero-tool.sh
+curl -fL "https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh?nocache=$(date +%s)" -o ptero-tool.sh
 chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
+```
+
+啟動時應看到：
+
+```text
+Pterodactyl Deploy Manager v9
 ```

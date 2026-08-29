@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v8
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v9
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v8"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v9"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -556,7 +556,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v8 完成"
+echo "✅ Panel 部署 v9 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
