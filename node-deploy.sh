@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v5
+# Pterodactyl Wings Node 一鍵部署 v7
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v5"
+echo " Pterodactyl Wings Node 一鍵部署 v7"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -45,7 +45,8 @@ read -rp "Panel URL（例 https://p.example.com）: " PANEL_URL
 read -rp "Node ID（例 3）: " NODE_ID
 read -rsp "Generate Token / Auto Deploy Token: " TOKEN
 echo
-read -rp "自動建立 Minecraft IPv6 Proxy？ [Y/n]: " SETUP_PROXY
+read -rp "這台 Node 的 Public IPv6（可留空稍後設定）: " PUBLIC_IPV6
+read -rp "自動建立 Minecraft IPv6 Proxy 25565-25600？ [Y/n]: " SETUP_PROXY
 SETUP_PROXY="${SETUP_PROXY:-Y}"
 
 [[ "$PANEL_URL" == http://* || "$PANEL_URL" == https://* ]] || PANEL_URL="https://${PANEL_URL}"
@@ -75,6 +76,10 @@ docker info >/dev/null 2>&1 || fail "Docker 無法正常運作；VPS 可能限�
 
 info "安裝 Wings"
 mkdir -p /etc/pterodactyl
+if [[ -n "${PUBLIC_IPV6:-}" ]]; then
+    printf '%s\n' "$PUBLIC_IPV6" > /etc/pterodactyl/public-ipv6
+    chmod 600 /etc/pterodactyl/public-ipv6
+fi
 
 case "$(uname -m)" in
     x86_64|amd64) WARCH="amd64" ;;
@@ -211,6 +216,7 @@ echo "Node: $NODE_NAME"
 echo "Panel: $PANEL_URL"
 echo "Node ID: $NODE_ID"
 echo "Allocation 建議 IP: $BACKEND_IPV4"
+[[ -n "${PUBLIC_IPV6:-}" ]] && echo "Public IPv6: $PUBLIC_IPV6"
 if [[ "$SETUP_PROXY" =~ ^[Yy]$ ]]; then
     echo "IPv6 Proxy: ${INTERNAL_IPV6}:${START_PORT}-${END_PORT} -> ${BACKEND_IPV4}:same-port"
 fi

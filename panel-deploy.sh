@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v5
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v7
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v5"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v7"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -75,6 +75,10 @@ echo "  3 = 只裝 Blueprint + Nebula"
 read -rp "選擇 [1]: " EXT_MODE
 EXT_MODE="${EXT_MODE:-1}"
 
+read -rp "每個 Blueprint Extension 最長安裝秒數 [300]: " EXT_TIMEOUT
+EXT_TIMEOUT="${EXT_TIMEOUT:-300}"
+
+[[ "$EXT_TIMEOUT" =~ ^[0-9]+$ ]] || EXT_TIMEOUT=300
 [[ -n "$PANEL_DOMAIN" && -n "$ADMIN_EMAIL" && -n "$ADMIN_PASS" ]] || fail "必要欄位不可空白"
 
 # ------------------------------------------------------------
@@ -168,7 +172,7 @@ info "安裝 Panel / Blueprint / 編譯依賴"
 apt_retry install -y \
     ca-certificates curl wget gnupg gpg lsb-release apt-transport-https \
     software-properties-common debian-keyring debian-archive-keyring \
-    unzip zip tar git rsync jq nano cron openssl \
+    unzip zip tar git rsync jq nano cron openssl coreutils \
     build-essential python3 python3-pip make g++ pkg-config \
     mariadb-server mariadb-client redis-server \
     php8.3 php8.3-cli php8.3-common php8.3-fpm php8.3-gd php8.3-mysql \
@@ -407,15 +411,34 @@ download_install() {
     echo "⬇️ 下載 $name"
     if ! curl -fL --retry 3 --retry-delay 2 -o "$dst" "$base/$name"; then
         FAILED+=("$name (download)")
+        echo "⚠️ $name 下載失敗，跳過"
         return 0
     fi
 
     cp -f "$dst" "$PTERO_DIR/$name"
 
-    echo "🧩 安裝 $name"
-    if ! blueprint -install "$name"; then
-        FAILED+=("$name")
-    fi
+    echo "🧩 安裝 $name（最長 ${EXT_TIMEOUT}s）"
+    set +e
+    timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" blueprint -install "$name"
+    rc=$?
+    set -e
+
+    case "$rc" in
+        0)
+            echo "✅ $name 安裝完成"
+            ;;
+        124|137|143)
+            echo "⚠️ $name 安裝超時或被終止，已自動跳過"
+            FAILED+=("$name (timeout)")
+            ;;
+        *)
+            echo "⚠️ $name 安裝失敗（exit=$rc），已自動跳過"
+            FAILED+=("$name (exit=$rc)")
+            ;;
+    esac
+
+    # 避免上一個 extension 留下長時間 build/process
+    pkill -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
 info "安裝 Nebula"
@@ -533,7 +556,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署完成"
+echo "✅ Panel 部署 v7 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
