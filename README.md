@@ -1,38 +1,28 @@
-# Pterodactyl Deploy Kit v9
+# Pterodactyl Deploy Kit v10
 
-v9 重新設計了主選單的下載器，不再使用：
+v10 新增 Blueprint / Nebula 全自動安裝模式。
 
-```bash
-path="$(download_script ...)"
-```
+Panel 安裝開始時可以選：
 
-所以「⬇️ 下載最新版 ...」等提示文字不可能再被誤當成檔案路徑。
+- `1 = 全自動`（預設）
+  - 遇到 Nebula 的 `Press 'RETURN' to continue` 會自動送 Enter
+  - 其他需要單純 Enter 確認的 Blueprint extension 也會自動繼續
+  - 每個 extension 仍有安裝 timeout，預設 300 秒
+  - 某個 extension 卡死或不相容時會跳過，不拖死整套部署
 
-新的流程：
+- `2 = 互動`
+  - 安裝器需要輸入時由你自己操作
 
-1. `download_script` 直接下載到 `/var/tmp/pterodactyl-deploy/<script>`
-2. 驗證檔案存在且非空
-3. 防止 HTML 錯誤頁被當成 shell script
-4. `bash -n` 語法檢查
-5. 將真實路徑存進 `DOWNLOADED_PATH`
-6. `run_component` 直接執行該路徑
-
-## 重要
-
-請先把 GitHub repo 裡的 `ptero-tool.sh` 覆蓋成 v9。
-如果 GitHub 還是舊版，重新 curl 當然仍會下載舊的主選單。
-
-## 執行
+## 主入口
 
 ```bash
-rm -f ptero-tool.sh
 curl -fL "https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/ptero-tool.sh?nocache=$(date +%s)" -o ptero-tool.sh
 chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
 ```
 
-啟動時應看到：
+啟動應顯示：
 
 ```text
-Pterodactyl Deploy Manager v9
+Pterodactyl Deploy Manager v10
 ```

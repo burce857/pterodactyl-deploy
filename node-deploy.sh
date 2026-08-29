@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v9
+# Pterodactyl Wings Node 一鍵部署 v10
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v9"
+echo " Pterodactyl Wings Node 一鍵部署 v10"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME

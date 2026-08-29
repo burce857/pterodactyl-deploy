@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v9
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v10
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v9"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v10"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -79,6 +79,13 @@ read -rp "每個 Blueprint Extension 最長安裝秒數 [300]: " EXT_TIMEOUT
 EXT_TIMEOUT="${EXT_TIMEOUT:-300}"
 
 [[ "$EXT_TIMEOUT" =~ ^[0-9]+$ ]] || EXT_TIMEOUT=300
+
+echo
+echo "Blueprint 安裝模式："
+echo "  1 = 全自動（預設，自動送 Enter 給 Nebula/Extension 安裝提示）"
+echo "  2 = 互動（需要時自己按 Enter/輸入）"
+read -rp "選擇 [1]: " BP_INSTALL_MODE
+BP_INSTALL_MODE="${BP_INSTALL_MODE:-1}"
 [[ -n "$PANEL_DOMAIN" && -n "$ADMIN_EMAIL" && -n "$ADMIN_PASS" ]] || fail "必要欄位不可空白"
 
 # ------------------------------------------------------------
@@ -406,6 +413,7 @@ download_install() {
     local base="$1"
     local name="$2"
     local dst="$WORK/$name"
+    local rc=0
 
     echo
     echo "⬇️ 下載 $name"
@@ -417,11 +425,26 @@ download_install() {
 
     cp -f "$dst" "$PTERO_DIR/$name"
 
-    echo "🧩 安裝 $name（最長 ${EXT_TIMEOUT}s）"
-    set +e
-    timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" blueprint -install "$name"
-    rc=$?
-    set -e
+    if [[ "${BP_INSTALL_MODE:-1}" == "2" ]]; then
+        echo "🧩 互動安裝 $name（最長 ${EXT_TIMEOUT}s）"
+        set +e
+        timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" \
+            blueprint -install "$name"
+        rc=$?
+        set -e
+    else
+        echo "🤖 全自動安裝 $name（自動送 Enter，最長 ${EXT_TIMEOUT}s）"
+        set +e
+
+        # 使用獨立 bash pipeline，讓 yes 的 SIGPIPE 不會因主腳本 set -o pipefail
+        # 被誤判為安裝失敗。Blueprint/Extension 收到 Enter 可自動通過
+        # "Press RETURN to continue" 這類提示。
+        timeout --signal=TERM --kill-after=20s "${EXT_TIMEOUT}s" \
+            bash -c 'yes "" | blueprint -install "$1"' _ "$name"
+        rc=$?
+
+        set -e
+    fi
 
     case "$rc" in
         0)
@@ -437,7 +460,7 @@ download_install() {
             ;;
     esac
 
-    # 避免上一個 extension 留下長時間 build/process
+    # 保險：清理同名殘留安裝行程
     pkill -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
@@ -556,7 +579,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v9 完成"
+echo "✅ Panel 部署 v10 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"
@@ -569,5 +592,6 @@ if ((${#FAILED[@]})); then
     echo "⚠️ 以下第三方 Extension 失敗："
     printf ' - %s\n' "${FAILED[@]}"
 fi
+echo "Blueprint 模式: $([[ "${BP_INSTALL_MODE:-1}" == "2" ]] && echo 互動 || echo 全自動)"
 echo "Log: $LOG"
 echo "============================================================"

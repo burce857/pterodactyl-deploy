@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # https://github.com/burce857/pterodactyl-deploy
 # ============================================================
 
-VERSION="9"
+VERSION="10"
 REPO_RAW="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main"
 CACHE_DIR="/var/tmp/pterodactyl-deploy"
 LOG="/var/log/pterodactyl-manager.log"
@@ -190,7 +190,7 @@ while true; do
     echo " Pterodactyl Deploy Manager v${VERSION}"
     echo "============================================================"
     echo
-    echo " 1) 安裝 / 補完 Panel"
+    echo " 1) 安裝 / 補完 Panel（支援 Blueprint 全自動按 Enter）"
     echo "    Pterodactyl + Caddy + DB + Redis + Blueprint + Nebula"
     echo
     echo " 2) 安裝 / 補完 Node"
