@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v13
+# Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v14
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -39,7 +39,7 @@ case "${VERSION_ID:-}" in
 esac
 
 echo "============================================================"
-echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v13"
+echo " Pterodactyl Panel + Blueprint + Nebula 一鍵部署 v14"
 echo "============================================================"
 
 read -rp "Panel 網域（例 p.example.com）: " PANEL_DOMAIN
@@ -471,7 +471,7 @@ download_install() {
     local rc=0
 
     case "$name" in
-        mclogs.blueprint|consolelogs.blueprint|laravellogs.blueprint|mcplugins.blueprint)
+        mclogs.blueprint|consolelogs.blueprint|laravellogs.blueprint|mcplugins.blueprint|minecraftplayermanager.blueprint)
             echo "⏭️ 跳過已知不相容/會卡住的擴充：$name"
             SKIPPED+=("$name")
             return 0
@@ -520,7 +520,7 @@ download_install() {
     pkill -9 -f "blueprint.*-install.*${name}" 2>/dev/null || true
 }
 
-echo "ℹ️ v13：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
+echo "ℹ️ v14：暫停自動安裝 Logs 類擴充：mclogs / consolelogs / laravellogs"
 info "安裝 Nebula"
 download_install "$UI_BASE" "nebula.blueprint"
 
@@ -530,7 +530,6 @@ RECOMMENDED=(
     resourcealerts.blueprint
     resourcemanager.blueprint
     mctools.blueprint
-    minecraftplayermanager.blueprint
     playerlisting.blueprint
     modrinthbrowser.blueprint
     motdmaker.blueprint
@@ -552,7 +551,7 @@ RECOMMENDED=(
 
 ALL_EXTENSIONS=(
     adminauditlogs.blueprint huxregister.blueprint loader.blueprint lyrdyannounce.blueprint
-    mctools.blueprint minecraftplayermanager.blueprint
+    mctools.blueprint
     playerlisting.blueprint resourcealerts.blueprint resourcemanager.blueprint
     serverbackgrounds.blueprint serversplitter.blueprint simplefavicons.blueprint
     snowflakes.blueprint sociallogin.blueprint startupchanger.blueprint subdomains.blueprint
@@ -632,7 +631,7 @@ systemctl is-active --quiet caddy && echo "✅ caddy active" || echo "⚠️ cad
 
 echo
 echo "============================================================"
-echo "✅ Panel 部署 v13 完成"
+echo "✅ Panel 部署 v14 完成"
 echo "網址: https://${PANEL_DOMAIN}"
 echo "Admin Email: ${ADMIN_EMAIL}"
 echo "DB User: ${DB_USER}"

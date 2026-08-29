@@ -1,28 +1,14 @@
-# Pterodactyl Deploy Kit v13
+# Pterodactyl Deploy Kit v14
 
-v13 新增「已知問題 Blueprint Extension 黑名單」。
+v14 新增黑名單：
 
-目前會直接跳過：
+- mclogs.blueprint
+- consolelogs.blueprint
+- laravellogs.blueprint
+- mcplugins.blueprint
+- minecraftplayermanager.blueprint
 
-- `mclogs.blueprint`
-- `consolelogs.blueprint`
-- `laravellogs.blueprint`
-- `mcplugins.blueprint`
-
-其中 `mcplugins.blueprint` 已確認在 Blueprint `beta-2026-08` 上會停在 46%，而它本身標示為 `beta-2024-08`。
-
-即使選擇「全部 Extensions」，上述項目也會直接顯示：
-
-```text
-⏭️ 跳過已知不相容/會卡住的擴充：mcplugins.blueprint
-```
-
-不會浪費 300 秒等待 timeout。
-
-其他 Extension 仍保留：
-- 自動 Enter
-- 硬性 watchdog timeout
-- 安裝失敗自動跳下一個
+`minecraftplayermanager.blueprint` 也確認是 beta-2024-08，會在 beta-2026-08 卡在 46%，因此現在會直接跳過，不再等 300 秒。
 
 主入口：
 
@@ -32,8 +18,8 @@ chmod +x ptero-tool.sh
 sudo ./ptero-tool.sh
 ```
 
-啟動應看到：
+啟動確認：
 
 ```text
-Pterodactyl Deploy Manager v13
+Pterodactyl Deploy Manager v14
 ```
