@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="19"
+SCRIPT_VERSION="21"
 PTERO_DIR="/var/www/pterodactyl"
 MAP_FILE="$PTERO_DIR/storage/app/publicaddress/node-ips.json"
 PARTIAL="$PTERO_DIR/resources/views/ptero-tool-public-address.blade.php"
@@ -116,137 +116,74 @@ find_core_blade() {
 }
 
 install_panel_runtime() {
-    [[ -f "$PTERO_DIR/artisan" ]] || { echo "❌ 這台不是 Panel 主機"; return 1; }
+    local panel_dir="/var/www/pterodactyl"
+    local blueprint_url="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/publicaddress.blueprint"
+    local tmp="/var/tmp/publicaddress.blueprint"
 
-    mkdir -p "$(dirname "$MAP_FILE")"
-    [[ -f "$MAP_FILE" ]] || echo '{}' > "$MAP_FILE"
-    chown -R www-data:www-data "$(dirname "$MAP_FILE")"
-
-    cat >"$PARTIAL" <<'BLADE'
-@php
-    $pteroToolPublicMapPath = storage_path('app/publicaddress/node-ips.json');
-    $pteroToolPublicMap = [];
-    if (is_file($pteroToolPublicMapPath)) {
-        $decoded = json_decode((string) file_get_contents($pteroToolPublicMapPath), true);
-        if (is_array($decoded)) $pteroToolPublicMap = $decoded;
-    }
-@endphp
-<script>
-(() => {
-    const mapping = @json($pteroToolPublicMap);
-    let currentPublicAddress = null;
-    let lastPath = location.pathname;
-
-    const serverId = () => {
-        const m = location.pathname.match(/^\/server\/([^/]+)/);
-        return m ? m[1] : null;
-    };
-
-    const replaceAddress = () => {
-        if (!currentPublicAddress) return;
-
-        document.querySelectorAll('body *').forEach((el) => {
-            if (el.children.length !== 0) return;
-            const t = (el.textContent || '').trim();
-
-            let m = t.match(/^127\.0\.0\.1:(\d+)$/);
-            if (m) {
-                const shown = `[${currentPublicAddress}]:${m[1]}`;
-                el.textContent = shown;
-                el.setAttribute('data-public-address', shown);
-                return;
-            }
-
-            if (t === '127.0.0.1') {
-                el.textContent = currentPublicAddress;
-                el.setAttribute('data-public-address-ip', currentPublicAddress);
-            }
-        });
-    };
-
-    const load = async () => {
-        const id = serverId();
-        currentPublicAddress = null;
-        if (!id) return;
-
-        try {
-            const r = await fetch(`/api/client/servers/${encodeURIComponent(id)}`, {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-            });
-            if (!r.ok) return;
-
-            const j = await r.json();
-            const node = j?.attributes?.node;
-            if (!node || !mapping[node]) return;
-
-            currentPublicAddress = mapping[node];
-            for (let i = 0; i < 8; i++) setTimeout(replaceAddress, i * 250);
-        } catch (_) {}
-    };
-
-    const routeChanged = () => {
-        if (location.pathname === lastPath) return;
-        lastPath = location.pathname;
-        setTimeout(load, 50);
-    };
-
-    const push = history.pushState;
-    history.pushState = function (...args) {
-        const r = push.apply(this, args);
-        routeChanged();
-        return r;
-    };
-
-    const replace = history.replaceState;
-    history.replaceState = function (...args) {
-        const r = replace.apply(this, args);
-        routeChanged();
-        return r;
-    };
-
-    window.addEventListener('popstate', routeChanged);
-
-    new MutationObserver(() => {
-        routeChanged();
-        replaceAddress();
-    }).observe(document.documentElement, { childList: true, subtree: true });
-
-    document.addEventListener('click', (e) => {
-        const target = e.target instanceof Element ? e.target : null;
-        if (!target) return;
-        const tagged = target.closest('[data-public-address]') ||
-            target.querySelector?.('[data-public-address]') ||
-            target.closest('div')?.querySelector?.('[data-public-address]');
-        if (!tagged) return;
-
-        const value = tagged.getAttribute('data-public-address');
-        if (!value) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        navigator.clipboard?.writeText(value).catch(() => {});
-    }, true);
-
-    load();
-})();
-</script>
-BLADE
-
-    local blade
-    blade="$(find_core_blade)" || { echo "❌ 找不到 Panel 主模板"; return 1; }
-
-    if ! grep -q "@include('ptero-tool-public-address')" "$blade"; then
-        cp -a "$blade" "${blade}.bak.$(date +%Y%m%d-%H%M%S)"
-        sed -i "/<\/body>/i\\    @include('ptero-tool-public-address')" "$blade"
+    if [[ ! -d "$panel_dir" ]]; then
+        echo "❌ 找不到 $panel_dir"
+        echo "   這個功能要在 Panel 主機執行。"
+        return 1
     fi
 
-    cd "$PTERO_DIR"
-    php artisan view:clear || true
-    php artisan optimize:clear || true
-    chown www-data:www-data "$PARTIAL"
-    echo "✅ 已安裝 127.0.0.1 -> Public IPv6 顯示功能"
+    if ! command -v blueprint >/dev/null 2>&1; then
+        echo "❌ 找不到 blueprint 指令，請先安裝 Blueprint Framework。"
+        return 1
+    fi
+
+    echo "⬇️ 下載最新版 Public Address Blueprint..."
+    rm -f "$tmp"
+
+    curl -fL "${blueprint_url}?nocache=$(date +%s%N)" -o "$tmp" || {
+        echo "❌ Public Address Blueprint 下載失敗"
+        echo "   $blueprint_url"
+        return 1
+    }
+
+    [[ -s "$tmp" ]] || {
+        echo "❌ publicaddress.blueprint 是空檔案"
+        return 1
+    }
+
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -t "$tmp" >/dev/null 2>&1 || {
+            echo "❌ publicaddress.blueprint 不是有效的 Blueprint/ZIP"
+            return 1
+        }
+    fi
+
+    cd "$panel_dir"
+
+    echo "📦 安裝/更新 Public Address Blueprint..."
+
+    if blueprint -list 2>/dev/null | grep -qi 'publicaddress'; then
+        set +e
+        blueprint -update "$tmp"
+        local rc=$?
+        set -e
+
+        if [[ "$rc" -ne 0 ]]; then
+            echo "ℹ️ update 不可用，改用移除 Extension 程式碼後重新安裝..."
+            blueprint -remove publicaddress >/dev/null 2>&1 || true
+            blueprint -install "$tmp"
+        fi
+    else
+        blueprint -install "$tmp"
+    fi
+
+    mkdir -p "$panel_dir/storage/app/publicaddress"
+    [[ -f "$panel_dir/storage/app/publicaddress/node-ips.json" ]] || printf '{}\n' > "$panel_dir/storage/app/publicaddress/node-ips.json"
+
+    chown -R www-data:www-data "$panel_dir/storage/app/publicaddress" 2>/dev/null || true
+    chmod 775 "$panel_dir/storage/app/publicaddress" 2>/dev/null || true
+    chmod 664 "$panel_dir/storage/app/publicaddress/node-ips.json" 2>/dev/null || true
+
+    php artisan optimize:clear >/dev/null 2>&1 || true
+
+    echo
+    echo "✅ Public Address Blueprint 已安裝/更新"
+    echo "   Admin：/admin/extensions/publicaddress"
+    echo "   127.0.0.1:PORT → [Public IPv6]:PORT（只改顯示）"
 }
 
 manage_mapping() {
@@ -317,7 +254,7 @@ esac
 while true; do
     clear
     echo "============================================================"
-    echo " Network / Public Address Manager v19"
+    echo " Network / Public Address Manager v21"
     echo "============================================================"
     echo " 1) 設定/重建 Minecraft IPv6 Proxy 25565-25600"
     echo " 2) 設定這台 Node 的 Public IPv6"

@@ -1,26 +1,17 @@
-# Pterodactyl Deploy Kit v19
+# Pterodactyl Deploy Kit v21
 
-v19 專門修正「Network / Public Address Manager 看不到安裝 Public Address 功能」的問題。
+已把你上傳的 Node 修復內容正式合併進完整工具。
 
-現在主選單直接多一個：
+Node 部署現在會自動：
+- HTTPS Panel 強制要求獨立 Node FQDN。
+- 驗證 Node FQDN 格式，避免跟 Panel 網域相同。
+- 沒有 Caddy 就自動安裝。
+- 建立獨立 `/etc/caddy/sites/<node-fqdn>.caddy`，不覆蓋 Panel。
+- 設定 `https://Node:443 -> http://127.0.0.1:8080`。
+- 驗證 Caddy 是否真的啟動。
+- 驗證 reverse_proxy 是否正確。
+- 驗證 Wings 8080；HTTP 401 視為正常。
+- 顯示 Panel Node 正確設定：SSL Yes / Behind Proxy Yes / Port 443 / SFTP 2022。
+- 修正 systemd PIDFile `/var/run` legacy warning。
+- 保留 Public IPv6、25565-25600 Proxy、Public Address Blueprint 自動下載/更新。
 
-```text
-5) 直接安裝/更新 127.0.0.1 -> Public IPv6 顯示功能
-```
-
-不需要先進 Network 子選單。
-
-另外：
-- `network-config.sh install-public-address` 可直接安裝顯示功能
-- `ptero-tool.sh` 下載子腳本時會加 nocache，避免 GitHub/CDN 還抓到舊版
-- Network 子選單本身仍保留：
-  `Panel：安裝/更新 127.0.0.1 -> Public IPv6 顯示功能`
-
-注意：這個功能要在 **Panel 主機** 執行，因為它會修改：
-
-```text
-/var/www/pterodactyl/resources/views/
-/var/www/pterodactyl/storage/app/publicaddress/
-```
-
-Node 主機只需要設定 Public IPv6 / proxy，不需要安裝 Panel 顯示 runtime。

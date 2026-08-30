@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v19
+# Pterodactyl Wings Node 一鍵部署 v21
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v19"
+echo " Pterodactyl Wings Node 一鍵部署 v21"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -59,7 +59,35 @@ else
     echo "127.0.1.1 ${NODE_NAME}" >> /etc/hosts
 fi
 
-read -rp "Node FQDN（例如 node1.example.com，留空則不設定 Caddy HTTPS 反代）: " NODE_FQDN
+PANEL_SCHEME="${PANEL_URL%%://*}"
+PANEL_HOST="${PANEL_URL#*://}"
+PANEL_HOST="${PANEL_HOST%%/*}"
+PANEL_HOST="${PANEL_HOST%%:*}"
+
+while true; do
+    read -rp "Node FQDN（例如 node1.example.com）: " NODE_FQDN
+    NODE_FQDN="${NODE_FQDN%.}"
+
+    if [[ -z "$NODE_FQDN" ]]; then
+        if [[ "$PANEL_SCHEME" == "https" ]]; then
+            echo "❌ Panel 使用 HTTPS，Node FQDN 不可留空；否則 Panel 無法以 HTTPS 連線 Wings。"
+            continue
+        fi
+        break
+    fi
+
+    [[ "$NODE_FQDN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]] || {
+        echo "❌ FQDN 格式不正確，請輸入完整網域，例如 node1.example.com"
+        continue
+    }
+
+    [[ "$NODE_FQDN" != "$PANEL_HOST" ]] || {
+        echo "❌ Node FQDN 不可與 Panel 網域相同，請使用獨立子網域，例如 node1.${PANEL_HOST}"
+        continue
+    }
+
+    break
+done
 info "安裝 Node 常用依賴"
 apt_retry update -y
 apt_retry install -y \
@@ -314,25 +342,12 @@ EOF
     systemctl enable --now mc-ipv6-range-proxy.service
 fi
 
-echo
-echo "============================================================"
-echo "✅ Node 部署完成"
-echo "Node: $NODE_NAME"
-echo "Panel: $PANEL_URL"
-echo "Node ID: $NODE_ID"
-echo "Allocation 建議 IP: $BACKEND_IPV4"
-[[ -n "${PUBLIC_IPV6:-}" ]] && echo "Public IPv6: $PUBLIC_IPV6"
-if [[ "$SETUP_PROXY" =~ ^[Yy]$ ]]; then
-    echo "IPv6 Proxy: ${INTERNAL_IPV6}:${START_PORT}-${END_PORT} -> ${BACKEND_IPV4}:same-port"
-fi
-echo
-
 # ------------------------------------------------------------
 # Node HTTPS reverse proxy (Caddy)
 # ------------------------------------------------------------
 setup_node_caddy_proxy() {
     [[ -n "${NODE_FQDN:-}" ]] || {
-        echo "ℹ️ 未提供 Node FQDN，略過 Caddy HTTPS 反代設定"
+        echo "ℹ️ 未提供 Node FQDN，略過 Caddy HTTPS 反代設定（僅適用 HTTP Panel）"
         return 0
     }
 
@@ -356,6 +371,13 @@ setup_node_caddy_proxy() {
     mkdir -p /etc/caddy/sites
     touch /etc/caddy/Caddyfile
 
+    # DNS 尚未解析到本機時只警告，讓部署可以先完成、等待 DNS propagation。
+    PUBLIC_V4="$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+    DNS_V4="$(getent ahostsv4 "$NODE_FQDN" 2>/dev/null | awk '{print $1}' | sort -u | head -n1 || true)"
+    if [[ -n "$PUBLIC_V4" && -n "$DNS_V4" && "$DNS_V4" != "$PUBLIC_V4" ]]; then
+        echo "⚠️ DNS 警告：${NODE_FQDN} 目前解析到 ${DNS_V4}，本機 Public IPv4 是 ${PUBLIC_V4}"
+    fi
+
     # 只加 import，不覆蓋既有 Panel / 其他 Node 設定。
     if ! grep -Fq 'import /etc/caddy/sites/*.caddy' /etc/caddy/Caddyfile; then
         printf '\n# Managed by pterodactyl-deploy\nimport /etc/caddy/sites/*.caddy\n' >> /etc/caddy/Caddyfile
@@ -375,10 +397,45 @@ EOF
     systemctl enable caddy >/dev/null 2>&1 || true
     systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
+    systemctl is-active --quiet caddy || {
+        journalctl -u caddy -n 80 --no-pager || true
+        fail "Caddy 啟動失敗"
+    }
+
+    # 確認 Caddy 真的載入 Node FQDN -> Wings 8080。
+    grep -Fq "${NODE_FQDN} {" "/etc/caddy/sites/${safe_name}.caddy" ||         fail "Node Caddy 設定檔未正確建立"
+    grep -Fq 'reverse_proxy 127.0.0.1:8080' "/etc/caddy/sites/${safe_name}.caddy" ||         fail "Node Caddy reverse_proxy 未指向 Wings 8080"
+
+    # Wings 本機 API 未帶 Authorization 時回 401 是正常的。
+    WINGS_HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/ || true)"
+    if [[ "$WINGS_HTTP_CODE" != "401" && "$WINGS_HTTP_CODE" != "200" ]]; then
+        fail "Wings 8080 健康檢查失敗（HTTP ${WINGS_HTTP_CODE:-000}）"
+    fi
+
     echo "✅ Caddy HTTPS 反代已設定：https://${NODE_FQDN}:443 → http://127.0.0.1:8080"
+    echo "ℹ️ Panel Node 設定請使用：FQDN=${NODE_FQDN} / SSL=Yes / Behind Proxy=Yes / Daemon Port=443 / SFTP Port=2022"
 }
 
 setup_node_caddy_proxy
+
+echo
+echo "============================================================"
+echo "✅ Node 部署完成"
+echo "Node: $NODE_NAME"
+echo "Panel: $PANEL_URL"
+echo "Node ID: $NODE_ID"
+echo "Allocation 建議 IP: $BACKEND_IPV4"
+[[ -n "${PUBLIC_IPV6:-}" ]] && echo "Public IPv6: $PUBLIC_IPV6"
+
+if [[ "$SETUP_PROXY" =~ ^[Yy]$ ]]; then
+    echo "IPv6 Proxy: ${INTERNAL_IPV6}:${START_PORT}-${END_PORT} -> ${BACKEND_IPV4}:same-port"
+fi
+
+if [[ -n "${NODE_FQDN:-}" ]]; then
+    echo "Node HTTPS: https://${NODE_FQDN}:443 -> http://127.0.0.1:8080"
+fi
+
+echo
 
 echo "設定檔："
 echo "  真正設定：/etc/pterodactyl/config.yml"
