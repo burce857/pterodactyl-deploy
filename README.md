@@ -1,19 +1,23 @@
-# Pterodactyl Deploy Kit v22
+# Pterodactyl Deploy Kit v23
 
-這版針對剛剛實際遇到的 Node 問題修正：
+v23 修正 Public Address Blueprint 安裝錯誤：
 
-- `wings configure` 從 Panel 抓完 config 後，**在第一次啟動 Wings 前**強制校正：
-  - `api.port: 8080`
-  - `api.ssl.enabled: false`
-  - `trusted_proxies: 127.0.0.1 / ::1`
-  - `remote` 自動移除尾端 `/`
-- 避免 Panel 的 Node 設定使用 SSL:443 時，把 Wings config 又寫成 443，造成 Wings 跟 Caddy 搶 Port。
-- Caddy Node reverse proxy 明確使用 HTTP/1.1 upstream，適合 Console WebSocket。
-- DNS 檢查改成「能不能解析」，不再錯誤比較 Cloudflare Proxy IP 與 origin IP。
-- 如果 Node FQDN 尚未建立 DNS，會直接提醒 `ERR_NAME_NOT_RESOLVED`。
-- Caddy 建好後會用 `--resolve ...:127.0.0.1` 測試本機 HTTPS → Caddy → Wings。
-- 部署最後自動檢查：
-  - `443 = Caddy`
-  - `8080 = Wings`
-  - `2022 = Wings SFTP`
-- 保留 Public IPv6、25565-25600 proxy、Public Address Blueprint 等既有功能。
+```text
+FATAL: Cannot import extensions from external paths.
+```
+
+原因：
+Blueprint beta-2026-08 不允許直接使用 `/var/tmp/publicaddress.blueprint` 這種 Panel 外部路徑。
+
+現在流程：
+1. 從 GitHub 下載到 `/var/tmp/publicaddress.blueprint`
+2. 驗證檔案
+3. 複製到 `/var/www/pterodactyl/publicaddress.blueprint`
+4. `cd /var/www/pterodactyl`
+5. 使用相對檔名：
+   `blueprint -install publicaddress.blueprint`
+6. 已安裝舊版時先移除 Extension 程式碼再重新安裝
+7. 保留 `storage/app/publicaddress/node-ips.json`
+8. 清除 Laravel cache
+
+所以之後在主選單選「安裝/更新 127.0.0.1 -> Public IPv6 顯示功能」即可。

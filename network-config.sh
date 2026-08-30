@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="22"
+SCRIPT_VERSION="23"
 PTERO_DIR="/var/www/pterodactyl"
 MAP_FILE="$PTERO_DIR/storage/app/publicaddress/node-ips.json"
 PARTIAL="$PTERO_DIR/resources/views/ptero-tool-public-address.blade.php"
@@ -119,10 +119,11 @@ install_panel_runtime() {
     local panel_dir="/var/www/pterodactyl"
     local blueprint_url="https://raw.githubusercontent.com/burce857/pterodactyl-deploy/main/publicaddress.blueprint"
     local tmp="/var/tmp/publicaddress.blueprint"
+    local local_bp="$panel_dir/publicaddress.blueprint"
 
-    if [[ ! -d "$panel_dir" ]]; then
-        echo "❌ 找不到 $panel_dir"
-        echo "   這個功能要在 Panel 主機執行。"
+    if [[ ! -d "$panel_dir" || ! -f "$panel_dir/artisan" ]]; then
+        echo "❌ 找不到有效的 Pterodactyl Panel：$panel_dir"
+        echo "   這個功能必須在 Panel 主機執行。"
         return 1
     fi
 
@@ -132,13 +133,15 @@ install_panel_runtime() {
     fi
 
     echo "⬇️ 下載最新版 Public Address Blueprint..."
-    rm -f "$tmp"
+    rm -f "$tmp" "$local_bp"
 
-    curl -fL "${blueprint_url}?nocache=$(date +%s%N)" -o "$tmp" || {
-        echo "❌ Public Address Blueprint 下載失敗"
-        echo "   $blueprint_url"
-        return 1
-    }
+    curl -fL --retry 3 --retry-delay 2 \
+        "${blueprint_url}?nocache=$(date +%s%N)" \
+        -o "$tmp" || {
+            echo "❌ Public Address Blueprint 下載失敗"
+            echo "   $blueprint_url"
+            return 1
+        }
 
     [[ -s "$tmp" ]] || {
         echo "❌ publicaddress.blueprint 是空檔案"
@@ -152,27 +155,31 @@ install_panel_runtime() {
         }
     fi
 
+    # Blueprint beta-2026-08 不允許從 /var/tmp 等外部路徑 import。
+    # 必須先複製到 Pterodactyl 根目錄，再以相對檔名安裝。
+    cp -f "$tmp" "$local_bp"
+    chown root:root "$local_bp" 2>/dev/null || true
+    chmod 644 "$local_bp"
+
     cd "$panel_dir"
 
     echo "📦 安裝/更新 Public Address Blueprint..."
 
-    if blueprint -list 2>/dev/null | grep -qi 'publicaddress'; then
-        set +e
-        blueprint -update "$tmp"
-        local rc=$?
-        set -e
-
-        if [[ "$rc" -ne 0 ]]; then
-            echo "ℹ️ update 不可用，改用移除 Extension 程式碼後重新安裝..."
-            blueprint -remove publicaddress >/dev/null 2>&1 || true
-            blueprint -install "$tmp"
-        fi
-    else
-        blueprint -install "$tmp"
-    fi
-
+    # 保留 mapping；extension 的 remove.sh 也不會刪除 node-ips.json。
     mkdir -p "$panel_dir/storage/app/publicaddress"
     [[ -f "$panel_dir/storage/app/publicaddress/node-ips.json" ]] || printf '{}\n' > "$panel_dir/storage/app/publicaddress/node-ips.json"
+
+    if blueprint -list 2>/dev/null | grep -qiE '(^|[[:space:]])publicaddress([[:space:]]|$)|Public Address'; then
+        echo "♻️ 偵測到 Public Address 已安裝，先移除舊 Extension 程式碼..."
+        blueprint -remove publicaddress >/dev/null 2>&1 || true
+    fi
+
+    # 重要：只傳相對檔名，不能傳 /var/tmp/... 或其他 external path。
+    if ! blueprint -install "publicaddress.blueprint"; then
+        echo "❌ Public Address Blueprint 安裝失敗"
+        echo "   檔案已保留在：$local_bp"
+        return 1
+    fi
 
     chown -R www-data:www-data "$panel_dir/storage/app/publicaddress" 2>/dev/null || true
     chmod 775 "$panel_dir/storage/app/publicaddress" 2>/dev/null || true
@@ -183,7 +190,9 @@ install_panel_runtime() {
     echo
     echo "✅ Public Address Blueprint 已安裝/更新"
     echo "   Admin：/admin/extensions/publicaddress"
-    echo "   127.0.0.1:PORT → [Public IPv6]:PORT（只改顯示）"
+    echo "   Mapping：$panel_dir/storage/app/publicaddress/node-ips.json"
+    echo "   顯示：127.0.0.1:PORT → [Public IPv6]:PORT"
+    echo "   注意：只改 Panel 顯示，不修改真正 Allocation。"
 }
 
 manage_mapping() {
@@ -254,7 +263,7 @@ esac
 while true; do
     clear
     echo "============================================================"
-    echo " Network / Public Address Manager v22"
+    echo " Network / Public Address Manager v23"
     echo "============================================================"
     echo " 1) 設定/重建 Minecraft IPv6 Proxy 25565-25600"
     echo " 2) 設定這台 Node 的 Public IPv6"
