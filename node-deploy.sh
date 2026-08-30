@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v21
+# Pterodactyl Wings Node 一鍵部署 v22
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -37,7 +37,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v21"
+echo " Pterodactyl Wings Node 一鍵部署 v22"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -258,6 +258,62 @@ info "從 Panel 抓取 config.yml"
     --token "$TOKEN" \
     --node "$NODE_ID"
 
+# ------------------------------------------------------------
+# Normalize Wings for Caddy reverse-proxy architecture
+# Panel may generate api.port=443 because the Node is configured as SSL:443.
+# Wings itself must stay on 8080; Caddy owns 443.
+# ------------------------------------------------------------
+info "校正 Wings：8080 / SSL false / trusted proxy"
+
+python3 - <<'PY'
+from pathlib import Path
+import re
+
+path = Path("/etc/pterodactyl/config.yml")
+text = path.read_text()
+
+# Wings API must listen internally on 8080.
+text = re.sub(
+    r'(?ms)(^api:\n.*?^  port:)\s*\d+',
+    r'\1 8080',
+    text,
+    count=1,
+)
+
+# TLS is terminated by Caddy, not Wings.
+text = re.sub(
+    r'(?ms)(^api:\n.*?^  ssl:\n.*?^    enabled:)\s*(true|false)',
+    r'\1 false',
+    text,
+    count=1,
+)
+
+# Trust the local Caddy reverse proxy.
+if re.search(r'(?m)^  trusted_proxies:\s*\[\]\s*$', text):
+    text = re.sub(
+        r'(?m)^  trusted_proxies:\s*\[\]\s*$',
+        '  trusted_proxies:\n    - 127.0.0.1\n    - ::1',
+        text,
+        count=1,
+    )
+elif re.search(r'(?m)^  trusted_proxies:\s*$', text):
+    # Leave an existing non-empty list alone.
+    pass
+
+# Normalize remote Panel URL to avoid origin mismatches caused by a trailing slash.
+text = re.sub(
+    r'(?m)^remote:\s*(https?://\S+?)/\s*$',
+    r'remote: \1',
+    text,
+    count=1,
+)
+
+path.write_text(text)
+PY
+
+grep -A12 '^api:' /etc/pterodactyl/config.yml || true
+grep '^remote:' /etc/pterodactyl/config.yml || true
+
 systemctl enable --now wings
 sleep 3
 
@@ -371,11 +427,15 @@ setup_node_caddy_proxy() {
     mkdir -p /etc/caddy/sites
     touch /etc/caddy/Caddyfile
 
-    # DNS 尚未解析到本機時只警告，讓部署可以先完成、等待 DNS propagation。
-    PUBLIC_V4="$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-    DNS_V4="$(getent ahostsv4 "$NODE_FQDN" 2>/dev/null | awk '{print $1}' | sort -u | head -n1 || true)"
-    if [[ -n "$PUBLIC_V4" && -n "$DNS_V4" && "$DNS_V4" != "$PUBLIC_V4" ]]; then
-        echo "⚠️ DNS 警告：${NODE_FQDN} 目前解析到 ${DNS_V4}，本機 Public IPv4 是 ${PUBLIC_V4}"
+    # 只檢查 FQDN 是否能解析。Cloudflare 橘雲會回 Cloudflare IP，
+    # 所以不能拿 DNS IP 跟 Node origin IP 做相等比較。
+    DNS_RESULT="$(getent ahosts "$NODE_FQDN" 2>/dev/null | awk '{print $1}' | sort -u | head -n5 || true)"
+    if [[ -z "$DNS_RESULT" ]]; then
+        echo "⚠️ DNS 尚未解析：${NODE_FQDN}"
+        echo "   請先在 Cloudflare/DNS 建立 ${NODE_FQDN}，否則瀏覽器 Console 會出現 ERR_NAME_NOT_RESOLVED。"
+    else
+        echo "✅ DNS 可解析：${NODE_FQDN}"
+        printf '%s\n' "$DNS_RESULT" | sed 's/^/   -> /'
     fi
 
     # 只加 import，不覆蓋既有 Panel / 其他 Node 設定。
@@ -387,7 +447,11 @@ setup_node_caddy_proxy() {
 
     cat >"/etc/caddy/sites/${safe_name}.caddy" <<EOF
 ${NODE_FQDN} {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8080 {
+        transport http {
+            versions 1.1
+        }
+    }
 }
 EOF
 
@@ -410,6 +474,18 @@ EOF
     WINGS_HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/ || true)"
     if [[ "$WINGS_HTTP_CODE" != "401" && "$WINGS_HTTP_CODE" != "200" ]]; then
         fail "Wings 8080 健康檢查失敗（HTTP ${WINGS_HTTP_CODE:-000}）"
+    fi
+
+    # Bypass public DNS and Cloudflare and verify local Caddy -> Wings path.
+    LOCAL_HTTPS_CODE="$(curl -k -sS -o /dev/null -w '%{http_code}' \
+        --resolve "${NODE_FQDN}:443:127.0.0.1" \
+        --max-time 8 "https://${NODE_FQDN}/" || true)"
+
+    if [[ "$LOCAL_HTTPS_CODE" != "401" && "$LOCAL_HTTPS_CODE" != "200" ]]; then
+        echo "⚠️ 本機 HTTPS 反代檢查回 HTTP ${LOCAL_HTTPS_CODE:-000}"
+        echo "   Caddy/Wings 仍可能需要檢查。"
+    else
+        echo "✅ 本機 HTTPS → Caddy → Wings 正常（HTTP ${LOCAL_HTTPS_CODE}；401 為正常未授權回應）"
     fi
 
     echo "✅ Caddy HTTPS 反代已設定：https://${NODE_FQDN}:443 → http://127.0.0.1:8080"
@@ -436,6 +512,19 @@ if [[ -n "${NODE_FQDN:-}" ]]; then
 fi
 
 echo
+echo "===== 最終健康檢查 ====="
+systemctl is-active wings caddy 2>/dev/null || true
+ss -ltnp 2>/dev/null | grep -E ':443|:8080|:2022' || true
+
+FINAL_WINGS_PORT="$(ss -ltnp 2>/dev/null | grep ':8080' | grep -c wings || true)"
+FINAL_SFTP_PORT="$(ss -ltnp 2>/dev/null | grep ':2022' | grep -c wings || true)"
+FINAL_CADDY_PORT="$(ss -ltnp 2>/dev/null | grep ':443' | grep -c caddy || true)"
+
+if [[ "$FINAL_WINGS_PORT" -gt 0 && "$FINAL_SFTP_PORT" -gt 0 && "$FINAL_CADDY_PORT" -gt 0 ]]; then
+    echo "✅ 正確：443=Caddy / 8080=Wings / 2022=Wings SFTP"
+else
+    echo "⚠️ Port 健康檢查未完全通過，請查看上方輸出。"
+fi
 
 echo "設定檔："
 echo "  真正設定：/etc/pterodactyl/config.yml"
