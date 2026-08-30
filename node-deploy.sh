@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ============================================================
-# Pterodactyl Wings Node 一鍵部署 v26
+# Pterodactyl Wings Node 一鍵部署 v27
 # Ubuntu 22.04 / 24.04
 # ============================================================
 
@@ -22,6 +22,101 @@ export DEBIAN_FRONTEND=noninteractive
 info(){ echo -e "\n🔹 $*"; }
 fail(){ echo "❌ $*" >&2; exit 1; }
 
+
+repair_docker_ghcr() {
+    local iface="${1:-eth0}"
+    local original_mtu=""
+    local working_mtu=""
+    local installer="ghcr.io/pterodactyl/installers:alpine"
+    local java25="ghcr.io/pterodactyl/yolks:java_25"
+
+    info "檢查 Docker → GHCR"
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "⚠️ Docker 尚未安裝，略過 GHCR 檢查。"
+        return 0
+    fi
+
+    if curl -4fsSI --connect-timeout 10 https://ghcr.io/v2/ >/dev/null 2>&1; then
+        echo "✅ 主機 IPv4 → ghcr.io TLS 正常"
+    else
+        echo "⚠️ 主機目前無法穩定連到 ghcr.io"
+    fi
+
+    if timeout 45 docker pull "$installer" >/tmp/ptero-ghcr-pull.log 2>&1; then
+        echo "✅ Docker → GHCR 正常"
+        docker pull "$java25" >/tmp/ptero-ghcr-java.log 2>&1 || true
+        return 0
+    fi
+
+    echo "⚠️ Docker pull GHCR 失敗，開始自動測試 MTU..."
+    tail -n 8 /tmp/ptero-ghcr-pull.log 2>/dev/null || true
+
+    if ! ip link show "$iface" >/dev/null 2>&1; then
+        iface="$(ip route show default 2>/dev/null | awk 'NR==1{print $5}')"
+    fi
+
+    if [[ -z "$iface" ]] || ! ip link show "$iface" >/dev/null 2>&1; then
+        echo "❌ 找不到主要網卡，無法自動測 MTU。"
+        return 1
+    fi
+
+    original_mtu="$(ip -o link show "$iface" | sed -n 's/.* mtu \([0-9]\+\).*/\1/p')"
+    [[ -n "$original_mtu" ]] || original_mtu=1500
+
+    for mtu in 1450 1400 1350 1300; do
+        echo "🧪 測試 ${iface} MTU=${mtu}"
+        ip link set dev "$iface" mtu "$mtu" || continue
+        systemctl restart docker
+        sleep 3
+
+        if timeout 50 docker pull "$installer" >/tmp/ptero-ghcr-pull.log 2>&1; then
+            working_mtu="$mtu"
+            echo "✅ Docker → GHCR 在 MTU=${mtu} 成功"
+            break
+        fi
+    done
+
+    if [[ -z "$working_mtu" ]]; then
+        echo "❌ 所有 MTU 測試仍失敗，還原 ${iface} MTU=${original_mtu}"
+        ip link set dev "$iface" mtu "$original_mtu" || true
+        systemctl restart docker
+        sleep 2
+        return 1
+    fi
+
+    cat >/etc/systemd/system/pterodactyl-mtu.service <<EOF
+[Unit]
+Description=Set network MTU for Pterodactyl Docker/GHCR compatibility
+Before=docker.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip link set dev ${iface} mtu ${working_mtu}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now pterodactyl-mtu.service
+
+    echo "📦 預先拉取 Pterodactyl images..."
+    docker pull "$installer" >/tmp/ptero-ghcr-installer.log 2>&1 || true
+    docker pull "$java25" >/tmp/ptero-ghcr-java.log 2>&1 || true
+
+    docker image inspect "$installer" >/dev/null 2>&1 \
+        && echo "✅ installers:alpine 已就緒" \
+        || echo "⚠️ installers:alpine 尚未就緒"
+
+    docker image inspect "$java25" >/dev/null 2>&1 \
+        && echo "✅ yolks:java_25 已就緒" \
+        || echo "⚠️ yolks:java_25 尚未就緒"
+}
+
 apt_retry() {
     local tries=0
     until apt-get "$@"; do
@@ -37,7 +132,7 @@ trap 'echo "❌ 安裝在第 $LINENO 行失敗。Log: '"$LOG"'"' ERR
 case "${VERSION_ID:-}" in 22.04|24.04) ;; *) fail "不支援 Ubuntu ${VERSION_ID:-unknown}";; esac
 
 echo "============================================================"
-echo " Pterodactyl Wings Node 一鍵部署 v26"
+echo " Pterodactyl Wings Node 一鍵部署 v27"
 echo "============================================================"
 
 read -rp "Node 名稱（例 node3）: " NODE_NAME
@@ -102,6 +197,8 @@ fi
 systemctl enable --now docker
 
 docker info >/dev/null 2>&1 || fail "Docker 無法正常運作；VPS 可能限制 nested Docker。"
+
+repair_docker_ghcr eth0 || echo "⚠️ GHCR 自動修復未完全成功；部署繼續，請查看上方結果。"
 
 info "安裝 Wings"
 mkdir -p /etc/pterodactyl
@@ -224,6 +321,35 @@ curl -fL -o /usr/local/bin/wings \
     "https://github.com/pterodactyl/wings/releases/latest/download/wings_linux_${WARCH}"
 chmod +x /usr/local/bin/wings
 
+cat >/usr/local/sbin/pterodactyl-wings-prepare <<'PY'
+#!/usr/bin/env python3
+from pathlib import Path
+import re
+
+p = Path("/etc/pterodactyl/config.yml")
+if not p.exists():
+    raise SystemExit(0)
+
+s = p.read_text()
+
+s = re.sub(
+    r'(?ms)(^api:\n.*?^  port:)\s*\d+',
+    r'\1 8080',
+    s,
+    count=1,
+)
+
+s = re.sub(
+    r'(?ms)(^api:\n.*?^  ssl:\n.*?^    enabled:)\s*(true|false)',
+    r'\1 false',
+    s,
+    count=1,
+)
+
+p.write_text(s)
+PY
+chmod 755 /usr/local/sbin/pterodactyl-wings-prepare
+
 cat >/etc/systemd/system/wings.service <<'EOF'
 [Unit]
 Description=Pterodactyl Wings Daemon
@@ -236,6 +362,7 @@ User=root
 WorkingDirectory=/etc/pterodactyl
 LimitNOFILE=4096
 PIDFile=/run/wings/daemon.pid
+ExecStartPre=/usr/local/sbin/pterodactyl-wings-prepare
 ExecStart=/usr/local/bin/wings
 Restart=on-failure
 StartLimitInterval=180

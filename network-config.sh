@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="26"
+SCRIPT_VERSION="27"
 PTERO_DIR="/var/www/pterodactyl"
 MAP_FILE="$PTERO_DIR/storage/app/publicaddress/node-ips.json"
 PARTIAL="$PTERO_DIR/resources/views/ptero-tool-public-address.blade.php"
@@ -263,7 +263,7 @@ esac
 while true; do
     clear
     echo "============================================================"
-    echo " Network / Public Address Manager v26"
+    echo " Network / Public Address Manager v27"
     echo "============================================================"
     echo " 1) 設定/重建 Minecraft IPv6 Proxy 25565-25600"
     echo " 2) 設定這台 Node 的 Public IPv6"
